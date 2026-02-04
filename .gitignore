@@ -1,0 +1,7 @@
+/target
+*.lock
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.iml
