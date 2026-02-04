@@ -1,23 +1,7 @@
 # FlexServ Deployer
 
-A Rust library and web server for flexible ML model deployment using various backends (Transformers, vLLM, SGLang, TRT-LLM).
+A Rust library and web server for deploying FlexServ on Tapis Pods or HPC systems via Tapis Jobs, with various backends (Transformers, vLLM, SGLang, TRT-LLM).
 
-## Project Structure
-
-```
-FlexServ-deployer/
-├── Cargo.toml                # Project configuration
-├── src/
-│   ├── lib.rs               # Library root (public API)
-│   ├── main.rs              # Web server binary entry point
-│   ├── backend.rs           # Backend enum and parameter builders
-│   ├── server.rs            # FlexServ configuration
-│   └── deployment.rs        # Deployment traits and implementations
-├── tests/                   # Integration tests
-│   └── integration_test.rs # Library and web server tests
-└── jupyter/                 # Jupyter notebooks for development
-    └── pod_deploy_rs.ipynb # Development notebook
-```
 
 ## Library Components
 
@@ -31,7 +15,7 @@ FlexServ-deployer/
   - `TrtLlmParametersBuilder`
 
 ### Server Module (`server.rs`)
-- **FlexServ**: Server configuration with tenant URL, user, model info, and backend
+- **FlexServInstance**: Server instance configuration with tenant URL, user, model info, and backend
 
 ### Deployment Module (`deployment.rs`)
 - **FlexServDeployment trait**: Common interface for deployment operations
@@ -42,7 +26,6 @@ FlexServ-deployer/
 ### Binary (`main.rs`)
 A web server built with Actix-web that exposes REST APIs:
 - Runs on `127.0.0.1:8080`
-- Provides model search and info endpoints
 
 ## Building
 
@@ -92,10 +75,10 @@ cargo test --test integration_test
 cargo test -- --nocapture
 ```
 
-## API Endpoints
+<!-- ## API Endpoints
 
 - `GET /search` - Search for models
-- `POST /info` - Get model information
+- `POST /info` - Get model information -->
 
 ## Development
 
