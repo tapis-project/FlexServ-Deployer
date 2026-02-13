@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn test_map_pods_error_response_codes() {
         use reqwest::StatusCode;
-        use tapis_pods::apis::{Error, ResponseContent};
+        use tapis_sdk::pods::apis::{Error, ResponseContent};
 
         let err_400 = Error::ResponseError(ResponseContent {
             status: StatusCode::from_u16(400).unwrap(),
