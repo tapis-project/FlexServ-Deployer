@@ -10,6 +10,9 @@ pub use backend::{
 };
 pub use deployment::{
     DeploymentError, DeploymentResult, FlexServDeployment, FlexServHPCDeployment,
-    FlexServPodDeployment,
+    FlexServPodDeployment, PodDeploymentOptions,
 };
-pub use server::FlexServInstance;
+pub use server::{
+    normalize_tenant_url, FlexServInstance, FlexServInstanceBuilder, ModelConfig, TapisConfig,
+    ValidationError,
+};
