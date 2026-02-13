@@ -381,28 +381,24 @@ impl FlexServPodDeployment {
             .or_else(|| std::env::var("HF_TOKEN").ok());
         // Startup script: download model (if MODEL_ID set) then start server.
         // Use explicit error handling and logging so failures are visible.
+        
+
+        // Startup script: download model (if MODEL_ID set) then start server.
+        // Use shell error handling (set -e) and logging so failures are visible.
         let startup_script = concat!(
             "set -e; ",
-            "echo 'FlexServ startup: checking environment...'; ",
-            "echo \"MODEL_ID=$MODEL_ID\"; ",
-            "echo \"MODEL_REPO=$MODEL_REPO\"; ",
-            "echo \"MODEL_NAME=$MODEL_NAME\"; ",
+            "echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; ",
             "if [ -n \"$MODEL_ID\" ]; then ",
-            "  echo 'FlexServ startup: downloading model...'; ",
+            "  echo 'Downloading model...'; ",
             "  /app/venvs/transformers/bin/python -c \"",
-            "import os, sys; ",
-            "from huggingface_hub import snapshot_download; ",
-            "try: ",
-            "  snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', ",
-            "    local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), ",
-            "    token=os.environ.get('HF_TOKEN') or None); ",
-            "  print('Model download succeeded'); ",
-            "except Exception as e: ",
-            "  print(f'Model download failed: {e}', file=sys.stderr); ",
-            "  sys.exit(1)",
-            "\" || { echo 'Model download failed'; exit 1; }; ",
+            "import os; from huggingface_hub import snapshot_download; ",
+            "snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', ",
+            "local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), ",
+            "token=os.environ.get('HF_TOKEN') or None)",
+            "\"; ",
+            "  echo 'Model download complete'; ",
             "fi; ",
-            "echo 'FlexServ startup: starting server...'; ",
+            "echo 'Starting FlexServ server...'; ",
             "exec /app/venvs/transformers/bin/python /app/flexserv/python/backend/transformers/backend_server.py \"$MODEL_REPO/$MODEL_NAME\" --host 0.0.0.0 --port 8000 --flexserv-token \"$FLEXSERV_TOKEN\""
         );
 
