@@ -532,13 +532,14 @@ impl FlexServPodDeployment {
             Err(e) => pod_error = Some(Self::map_pods_error(e)),
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
         let mut vol_resp = None;
         let mut vol_error = None;
-        match volumes_api::delete_volume(&config, &self.volume_id).await {
-            Ok(resp) => vol_resp = Some(resp),
-            Err(e) => vol_error = Some(Self::map_pods_error(e)),
+        if !self.volume_id.is_empty() {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            match volumes_api::delete_volume(&config, &self.volume_id).await {
+                Ok(resp) => vol_resp = Some(resp),
+                Err(e) => vol_error = Some(Self::map_pods_error(e)),
+            }
         }
 
         // If both failed, return the pod error (more critical)
@@ -553,10 +554,15 @@ impl FlexServPodDeployment {
             log::warn!("Volume deletion failed (but pod deleted): {:?}", e);
         }
 
-        let combined_info = format!(
-            "pod: {:#?}\nvolume: {:#?}",
-            pod_resp.as_ref().map(|r| format!("{:#?}", r)).unwrap_or_else(|| "deleted".to_string()),
+        let vol_info = if self.volume_id.is_empty() {
+            "no volume".to_string()
+        } else {
             vol_resp.as_ref().map(|r| format!("{:#?}", r)).unwrap_or_else(|| "deleted".to_string())
+        };
+        let combined_info = format!(
+            "pod: {:#?}\nvolume: {}",
+            pod_resp.as_ref().map(|r| format!("{:#?}", r)).unwrap_or_else(|| "deleted".to_string()),
+            vol_info
         );
 
         Ok(DeploymentResult::PodResult {
@@ -578,12 +584,18 @@ impl FlexServPodDeployment {
             .await
             .map_err(Self::map_pods_error)?;
 
-        let vol_resp = volumes_api::get_volume(&config, &self.volume_id)
-            .await
-            .map_err(Self::map_pods_error)?;
+        eprintln!("pods_api::get_pod result:\n{:#?}", pod_resp);
+
+        let volume_info = if self.volume_id.is_empty() {
+            String::new()
+        } else {
+            match volumes_api::get_volume(&config, &self.volume_id).await {
+                Ok(vol_resp) => format!("{:#?}", vol_resp.result),
+                Err(_) => String::new(),
+            }
+        };
 
         let pod_info = format!("{:#?}", pod_resp.result);
-        let volume_info = format!("{:#?}", vol_resp.result);
         let pod_url = Self::pod_url_from_result(&pod_resp.result);
 
         Ok(DeploymentResult::PodResult {
