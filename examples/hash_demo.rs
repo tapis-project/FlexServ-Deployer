@@ -7,8 +7,6 @@ fn main() {
         "testuser".to_string(),
         "meta-llama/Llama-3-70b-hf".to_string(),
         None,
-        None,
-        None,
         Backend::Transformers {
             command: vec![
                 "/app/venvs/transformers/bin/python".to_string(),
