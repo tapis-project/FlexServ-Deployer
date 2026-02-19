@@ -78,11 +78,7 @@ impl FlexServPodDeployment {
     /// deployment_id is normalized to lowercase alphanumeric (e.g. UUID with dashes stripped).
     fn ids_from_options(server: &FlexServInstance, options: &PodDeploymentOptions) -> (String, String) {
         let suffix = if let Some(ref id) = options.deployment_id {
-            let normalized: String = id
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .flat_map(|c| c.to_lowercase())
-                .collect();
+            let normalized = crate::utils::normalize_to_lowercase_alphanumeric(id);
             if normalized.is_empty() {
                 server.deployment_hash().to_lowercase()
             } else {
@@ -553,10 +549,7 @@ mod tests {
     use super::*;
     use crate::backend::Backend;
     use crate::server::{FlexServInstance, ModelConfig, TapisConfig};
-
-    fn is_lowercase_alphanumeric(s: &str) -> bool {
-        s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-    }
+    use crate::utils::is_lowercase_alphanumeric;
 
     #[test]
     fn test_pod_deployment_creation() {
@@ -745,19 +738,6 @@ mod tests {
         assert_ne!(d1.pod_id, d2.pod_id);
         assert!(is_lowercase_alphanumeric(d1.pod_id.strip_prefix('p').unwrap()));
         assert!(is_lowercase_alphanumeric(d1.volume_id.strip_prefix('v').unwrap()));
-    }
-
-    #[test]
-    fn test_is_lowercase_alphanumeric() {
-        assert!(is_lowercase_alphanumeric(""));
-        assert!(is_lowercase_alphanumeric("a"));
-        assert!(is_lowercase_alphanumeric("abc123"));
-        assert!(is_lowercase_alphanumeric("p1a2b3"));
-        assert!(!is_lowercase_alphanumeric("aBc"));
-        assert!(!is_lowercase_alphanumeric("Uppercase"));
-        assert!(!is_lowercase_alphanumeric("with-dash"));
-        assert!(!is_lowercase_alphanumeric("with_underscore"));
-        assert!(!is_lowercase_alphanumeric("space "));
     }
 
     #[test]

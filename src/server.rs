@@ -1,7 +1,10 @@
 use crate::backend::Backend;
 use crate::base62;
+use crate::utils::is_absolute_http_url;
 use sha2::{Digest, Sha256};
 use std::fmt;
+
+pub use crate::utils::normalize_tenant_url;
 
 /// Server-side TAPIS connection config (tenant, user, token).
 #[derive(Clone, Debug)]
@@ -50,23 +53,6 @@ impl fmt::Display for ValidationError {
 }
 
 impl std::error::Error for ValidationError {}
-
-fn is_absolute_http_url(s: &str) -> bool {
-    let s = s.trim();
-    (s.starts_with("https://") || s.starts_with("http://")) && s.len() > 8
-}
-
-/// Normalize tenant URL: if no scheme, prepend `https://` (e.g. `tacc.tapis.io` → `https://tacc.tapis.io`).
-pub fn normalize_tenant_url(url: &str) -> String {
-    let s = url.trim();
-    if s.is_empty() {
-        return s.to_string();
-    }
-    if s.starts_with("https://") || s.starts_with("http://") {
-        return s.to_string();
-    }
-    format!("https://{}", s)
-}
 
 /// FlexServ server configuration
 #[derive(Debug)]
@@ -359,13 +345,6 @@ mod tests {
         });
         assert_eq!(server.tenant_url, tapis.tenant_url);
         assert_eq!(server.default_model, model.model_id);
-    }
-
-    #[test]
-    fn test_normalize_tenant_url() {
-        assert_eq!(normalize_tenant_url("tacc.tapis.io"), "https://tacc.tapis.io");
-        assert_eq!(normalize_tenant_url("https://tacc.tapis.io"), "https://tacc.tapis.io");
-        assert_eq!(normalize_tenant_url("  tacc.tapis.io  "), "https://tacc.tapis.io");
     }
 
     #[test]
