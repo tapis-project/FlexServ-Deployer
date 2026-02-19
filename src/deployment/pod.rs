@@ -1,4 +1,5 @@
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
+use crate::backend::{Backend, BackendParameters};
 use crate::server::{FlexServInstance, ModelConfig, TapisConfig, ValidationError};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tapis_sdk::pods::apis;
@@ -169,6 +170,40 @@ impl FlexServPodDeployment {
             .and_then(|net| net.url.clone())
     }
 
+    /// Build BackendParameters for the pod from server config (command/args/env from backend module).
+    fn build_pod_backend_params(server: &FlexServInstance) -> BackendParameters {
+        match &server.backend {
+            Backend::Transformers { .. } => server
+                .backend
+                .transformers()
+                .default_model(&server.default_model)
+                .host("0.0.0.0")
+                .port(8000)
+                .build(),
+            Backend::VLlm { .. } => server.backend.vllm().build(),
+            Backend::SGLang { .. } => server.backend.sglang().build(),
+            Backend::TrtLlm { .. } => server.backend.trtllm().build(),
+        }
+    }
+
+    /// Build the exec line for the pod startup script: prefix + model_path + cli_args + --flexserv-token.
+    fn build_pod_exec_line(cmd_prefix: &[String], cli_args: &[String]) -> String {
+        let prefix_str = cmd_prefix
+            .iter()
+            .map(|a| if a.contains(' ') { format!("\"{}\"", a) } else { a.clone() })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let args_str = cli_args
+            .iter()
+            .map(|a| if a.contains(' ') { format!("\"{}\"", a) } else { a.clone() })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "exec {} \"$MODEL_REPO/$MODEL_NAME\" {} --flexserv-token \"$FLEXSERV_TOKEN\"",
+            prefix_str, args_str
+        )
+    }
+
     /// Map a tapis-pods error into our DeploymentError, based on HTTP status / network.
     pub(crate) fn map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
         match err {
@@ -294,23 +329,29 @@ impl FlexServPodDeployment {
             .clone()
             .or_else(|| std::env::var("HF_TOKEN").ok());
 
+        // Build backend command/args/env from the backend module.
+        let backend_params = Self::build_pod_backend_params(&self.server);
+        let cmd_prefix = self.server.backend.default_pod_command_prefix();
+        let cli_args = backend_params.to_cli_args();
+        let exec_line = Self::build_pod_exec_line(&cmd_prefix, &cli_args);
+
         // Startup script: download model (if MODEL_ID set) then start server.
-        // Use shell error handling (set -e) and logging so failures are visible.
-        let startup_script = concat!(
-            "set -e; ",
-            "echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; ",
-            "if [ -n \"$MODEL_ID\" ]; then ",
-            "  echo 'Downloading model...'; ",
-            "  /app/venvs/transformers/bin/python -c \"",
-            "import os; from huggingface_hub import snapshot_download; ",
-            "snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', ",
-            "local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), ",
-            "token=os.environ.get('HF_TOKEN') or None)",
-            "\"; ",
-            "  echo 'Model download complete'; ",
-            "fi; ",
-            "echo 'Starting FlexServ server...'; ",
-            "exec /app/venvs/transformers/bin/python /app/flexserv/python/backend/transformers/backend_server.py \"$MODEL_REPO/$MODEL_NAME\" --host 0.0.0.0 --port 8000 --flexserv-token \"$FLEXSERV_TOKEN\""
+        let startup_script = format!(
+            "set -e; \
+            echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; \
+            if [ -n \"$MODEL_ID\" ]; then \
+              echo 'Downloading model...'; \
+              /app/venvs/transformers/bin/python -c \"\
+import os; from huggingface_hub import snapshot_download; \
+snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', \
+local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), \
+token=os.environ.get('HF_TOKEN') or None)\
+\"; \
+              echo 'Model download complete'; \
+            fi; \
+            echo 'Starting FlexServ server...'; \
+            {}",
+            exec_line
         );
 
         let mut env_vars: std::collections::HashMap<String, serde_json::Value> = [
@@ -325,6 +366,9 @@ impl FlexServPodDeployment {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
+        for (k, v) in &backend_params.env {
+            env_vars.insert(k.clone(), serde_json::json!(v));
+        }
         if let Some(ref t) = hf_token {
             env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
         }

@@ -26,6 +26,30 @@ impl Backend {
         }
     }
 
+    /// Default command prefix for running this backend in the FlexServ pod image.
+    /// Returns [interpreter, script_path] or [python, -m, module] as appropriate.
+    /// Non-Transformers backends use a placeholder until pod image support is added.
+    pub fn default_pod_command_prefix(&self) -> Vec<String> {
+        match self {
+            Backend::Transformers { .. } => vec![
+                "/app/venvs/transformers/bin/python".to_string(),
+                "/app/flexserv/python/backend/transformers/backend_server.py".to_string(),
+            ],
+            Backend::VLlm { .. } => vec![
+                "/bin/echo".to_string(),
+                "vllm backend: pod command not yet implemented".to_string(),
+            ],
+            Backend::SGLang { .. } => vec![
+                "/bin/echo".to_string(),
+                "sglang backend: pod command not yet implemented".to_string(),
+            ],
+            Backend::TrtLlm { .. } => vec![
+                "/bin/echo".to_string(),
+                "trtllm backend: pod command not yet implemented".to_string(),
+            ],
+        }
+    }
+
     /// Create a Transformers parameter builder
     pub fn transformers(&self) -> TransformersParametersBuilder {
         match self {
@@ -92,6 +116,37 @@ impl BackendParameters {
 
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.params.get(key)
+    }
+
+    /// Convert params to CLI args (e.g. `--host 0.0.0.0 --port 8000`).
+    /// Skips `flexserv-token` so the pod script can inject `"$FLEXSERV_TOKEN"` at runtime.
+    /// Bool true => `--key`, bool false => omitted.
+    pub fn to_cli_args(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (key, value) in &self.params {
+            if key == "flexserv-token" {
+                continue;
+            }
+            match value {
+                Value::Bool(b) => {
+                    if *b {
+                        out.push(format!("--{}", key.replace('_', "-")));
+                    }
+                }
+                Value::Null => {}
+                v => {
+                    out.push(format!("--{}", key.replace('_', "-")));
+                    let s = serde_json::to_string(v).unwrap_or_default();
+                    let val = if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                        s[1..s.len() - 1].replace("\\\"", "\"")
+                    } else {
+                        s
+                    };
+                    out.push(val);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -325,5 +380,29 @@ mod tests {
             "meta-llama/Llama-2-7b"
         );
         assert_eq!(params.get("port").unwrap(), 8080);
+    }
+
+    #[test]
+    fn test_to_cli_args() {
+        let params = TransformersParametersBuilder::new(vec!["python".to_string()])
+            .host("0.0.0.0")
+            .port(8000)
+            .flexserv_token("secret")
+            .build();
+        let args = params.to_cli_args();
+        assert!(args.contains(&"--host".to_string()));
+        assert!(args.contains(&"0.0.0.0".to_string()));
+        assert!(args.contains(&"--port".to_string()));
+        assert!(args.contains(&"8000".to_string()));
+        assert!(!args.iter().any(|a| a == "secret"), "flexserv-token omitted for script");
+    }
+
+    #[test]
+    fn test_default_pod_command_prefix() {
+        let backend = Backend::Transformers { command: vec!["python".to_string()] };
+        let prefix = backend.default_pod_command_prefix();
+        assert_eq!(prefix.len(), 2);
+        assert!(prefix[0].contains("python"));
+        assert!(prefix[1].contains("backend_server"));
     }
 }
