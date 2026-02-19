@@ -7,7 +7,6 @@ use tapis_sdk::pods::apis::pods_api;
 use tapis_sdk::pods::apis::volumes_api;
 use tapis_sdk::pods::models;
 use reqwest::header::{HeaderMap, HeaderValue};
-use tokio::runtime::Runtime;
 
 /// Deployment result enum.
 /// Implements Serialize so HTTP handlers can return it as JSON (e.g. `HttpResponse::Ok().json(result)`).
@@ -79,13 +78,15 @@ impl fmt::Display for DeploymentError {
 
 impl std::error::Error for DeploymentError {}
 
-/// FlexServ deployment trait
+/// FlexServ deployment trait.
+/// All methods are async to avoid deadlocks when called from an async runtime.
+#[allow(async_fn_in_trait)]
 pub trait FlexServDeployment {
-    fn create(&mut self) -> Result<DeploymentResult, DeploymentError>;
-    fn start(&self) -> Result<DeploymentResult, DeploymentError>;
-    fn stop(&self) -> Result<DeploymentResult, DeploymentError>;
-    fn terminate(&self) -> Result<DeploymentResult, DeploymentError>;
-    fn monitor(&self) -> Result<DeploymentResult, DeploymentError>;
+    async fn create(&mut self) -> Result<DeploymentResult, DeploymentError>;
+    async fn start(&self) -> Result<DeploymentResult, DeploymentError>;
+    async fn stop(&self) -> Result<DeploymentResult, DeploymentError>;
+    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError>;
+    async fn monitor(&self) -> Result<DeploymentResult, DeploymentError>;
 }
 
 /// Options for pod-based deployment (volume size, image, resources, secrets, deployment id).
@@ -612,29 +613,24 @@ impl FlexServPodDeployment {
 }
 
 impl FlexServDeployment for FlexServPodDeployment {
-    fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
-        let rt = Runtime::new().map_err(|e| DeploymentError::UnknownError(e.to_string()))?;
-        rt.block_on(self.create_impl())
+    async fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
+        self.create_impl().await
     }
 
-    fn start(&self) -> Result<DeploymentResult, DeploymentError> {
-        let rt = Runtime::new().map_err(|e| DeploymentError::UnknownError(e.to_string()))?;
-        rt.block_on(self.start_impl())
+    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
+        self.start_impl().await
     }
 
-    fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
-        let rt = Runtime::new().map_err(|e| DeploymentError::UnknownError(e.to_string()))?;
-        rt.block_on(self.stop_impl())
+    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
+        self.stop_impl().await
     }
 
-    fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
-        let rt = Runtime::new().map_err(|e| DeploymentError::UnknownError(e.to_string()))?;
-        rt.block_on(self.terminate_impl())
+    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
+        self.terminate_impl().await
     }
 
-    fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
-        let rt = Runtime::new().map_err(|e| DeploymentError::UnknownError(e.to_string()))?;
-        rt.block_on(self.monitor_impl())
+    async fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
+        self.monitor_impl().await
     }
 }
 
@@ -650,28 +646,23 @@ impl FlexServHPCDeployment {
 }
 
 impl FlexServDeployment for FlexServHPCDeployment {
-    fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
-        // Create HPC job
+    async fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
         todo!("Implement HPC job creation")
     }
 
-    fn start(&self) -> Result<DeploymentResult, DeploymentError> {
-        // Start HPC job
+    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
         todo!("Implement HPC job start")
     }
 
-    fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
-        // Stop HPC job
+    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
         todo!("Implement HPC job stop")
     }
 
-    fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
-        // Terminate HPC job
+    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
         todo!("Implement HPC job termination")
     }
 
-    fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
-        // Monitor HPC job status
+    async fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
         todo!("Implement HPC job monitoring")
     }
 }

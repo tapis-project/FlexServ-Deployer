@@ -27,7 +27,8 @@ use flexserv_deployer::{
     FlexServInstance,
 };
 
-fn main() -> Result<(), DeploymentError> {
+#[tokio::main]
+async fn main() -> Result<(), DeploymentError> {
     env_logger::init();
 
     let (tenant_url, tapis_token) = if let (Ok(t), Ok(token)) = (
@@ -64,7 +65,7 @@ fn main() -> Result<(), DeploymentError> {
     let mut deployment = FlexServPodDeployment::new(server, tapis_token);
 
     println!("Creating pod deployment (volume + pod; pod will download model at startup)...");
-    let result = deployment.create()?;
+    let result = deployment.create().await?;
 
     match result {
         DeploymentResult::PodResult {

@@ -45,8 +45,8 @@ fn make_server(tenant_url: &str, model_id: &str) -> FlexServInstance {
 }
 
 /// Test create() functionality: verify return values and that pod/volume are created.
-#[test]
-fn test_create_functionality() {
+#[tokio::test]
+async fn test_create_functionality() {
     let (tenant_url, tapis_token) = match env_or_skip() {
         Some(t) => t,
         None => {
@@ -60,7 +60,7 @@ fn test_create_functionality() {
     let mut deployment = FlexServPodDeployment::new(server, tapis_token);
 
     // Test create() - this also tests cleanup of existing pods/volumes (handled inside create_impl)
-    let result = deployment.create();
+    let result = deployment.create().await;
     let create_result = result.as_ref().map_err(|e| panic!("create failed: {:?}", e)).unwrap();
     
     match create_result {

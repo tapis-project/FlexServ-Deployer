@@ -62,8 +62,8 @@ fn make_existing_deployment(tenant_url: &str, tapis_token: &str) -> Option<FlexS
 }
 
 /// Test stop(): one call, verify return values.
-#[test]
-fn test_stop() {
+#[tokio::test]
+async fn test_stop() {
     let (tenant_url, tapis_token) = match env_or_skip() {
         Some(t) => t,
         None => {
@@ -83,7 +83,7 @@ fn test_stop() {
         }
     };
 
-    let stop_result = deployment.stop().expect("stop should succeed");
+    let stop_result = deployment.stop().await.expect("stop should succeed");
     match stop_result {
         DeploymentResult::PodResult {
             pod_id,

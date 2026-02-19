@@ -64,8 +64,8 @@ fn make_existing_deployment(tenant_url: &str, tapis_token: &str) -> Option<FlexS
 
 /// Test terminate() functionality: verify return values and that pod/volume are deleted.
 /// WARNING: This will delete the pod and volume!
-#[test]
-fn test_terminate_functionality() {
+#[tokio::test]
+async fn test_terminate_functionality() {
     let (tenant_url, tapis_token) = match env_or_skip() {
         Some(t) => t,
         None => {
@@ -85,7 +85,7 @@ fn test_terminate_functionality() {
         }
     };
 
-    let terminate_result = deployment.terminate().expect("terminate should succeed");
+    let terminate_result = deployment.terminate().await.expect("terminate should succeed");
     match terminate_result {
         DeploymentResult::PodResult {
             pod_id,
@@ -109,7 +109,7 @@ fn test_terminate_functionality() {
     }
 
     // Verify pod/volume are actually deleted: monitor() should return error (pod not found)
-    let monitor_result = deployment.monitor();
+    let monitor_result = deployment.monitor().await;
     assert!(monitor_result.is_err(), "monitor() should return error after terminate()");
     if let Err(e) = monitor_result {
         eprintln!("Verified: monitor() returns error after terminate (pod not found): {:?}", e);

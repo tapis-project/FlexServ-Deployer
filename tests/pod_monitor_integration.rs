@@ -83,8 +83,8 @@ fn make_existing_deployment(tenant_url: &str, tapis_token: &str) -> Option<FlexS
 }
 
 /// Test monitor() functionality: verify return values and that pod/volume info is retrieved.
-#[test]
-fn test_monitor_functionality() {
+#[tokio::test]
+async fn test_monitor_functionality() {
     let (tenant_url, tapis_token) = match env_or_skip() {
         Some(t) => t,
         None => {
@@ -104,7 +104,7 @@ fn test_monitor_functionality() {
         }
     };
 
-    let monitor_result = deployment.monitor().expect("monitor should succeed");
+    let monitor_result = deployment.monitor().await.expect("monitor should succeed");
     match monitor_result {
         DeploymentResult::PodResult {
             pod_id,
@@ -139,8 +139,8 @@ fn test_monitor_functionality() {
 }
 
 /// Test monitor() multiple times: verify it can be called repeatedly.
-#[test]
-fn test_monitor_repeated() {
+#[tokio::test]
+async fn test_monitor_repeated() {
     let (tenant_url, tapis_token) = match env_or_skip() {
         Some(t) => t,
         None => {
@@ -161,7 +161,7 @@ fn test_monitor_repeated() {
     };
 
     // Monitor first time
-    let monitor1 = deployment.monitor().expect("first monitor should succeed");
+    let monitor1 = deployment.monitor().await.expect("first monitor should succeed");
     match monitor1 {
         DeploymentResult::PodResult { pod_id, .. } => {
             assert_eq!(pod_id, deployment.pod_id);
@@ -170,11 +170,10 @@ fn test_monitor_repeated() {
         _ => panic!("expected PodResult"),
     }
 
-    // Wait a moment
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Monitor second time
-    let monitor2 = deployment.monitor().expect("second monitor should succeed");
+    let monitor2 = deployment.monitor().await.expect("second monitor should succeed");
     match monitor2 {
         DeploymentResult::PodResult { pod_id, pod_url, .. } => {
             assert_eq!(pod_id, deployment.pod_id);

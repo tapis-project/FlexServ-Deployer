@@ -17,7 +17,8 @@ use flexserv_deployer::{
     FlexServInstance,
 };
 
-fn main() -> Result<(), DeploymentError> {
+#[tokio::main]
+async fn main() -> Result<(), DeploymentError> {
     env_logger::init();
 
     let (tenant_url, tapis_token, pod_id, volume_id) = if let (Ok(t), Ok(token), Ok(pod), Ok(vol)) = (
@@ -49,7 +50,7 @@ fn main() -> Result<(), DeploymentError> {
     let deployment = FlexServPodDeployment::from_existing(server, tapis_token, pod_id.clone(), volume_id.clone());
 
     println!("Terminating pod {} and volume {}...", pod_id, volume_id);
-    let result = deployment.terminate()?;
+    let result = deployment.terminate().await?;
 
     match result {
         DeploymentResult::PodResult {
