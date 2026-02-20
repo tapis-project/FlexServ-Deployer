@@ -2,6 +2,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Trait for ML inference backends.
+/// Each backend implementation provides its name, command, and parameter builder.
+pub trait BackendTrait {
+    /// Return the backend name (e.g., "transformers", "vllm")
+    fn name(&self) -> &str;
+    
+    /// Return the command to run the backend
+    fn command(&self) -> &[String];
+    
+    /// Create backend-specific parameters
+    fn create_parameters(&self) -> BackendParameters;
+}
+
 /// Supported ML inference backends
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -16,14 +29,34 @@ pub enum Backend {
     TrtLlm { command: Vec<String> },
 }
 
-impl Backend {
-    pub fn as_str(&self) -> &str {
+impl BackendTrait for Backend {
+    fn name(&self) -> &str {
         match self {
             Backend::Transformers { .. } => "transformers",
             Backend::VLlm { .. } => "vllm",
             Backend::SGLang { .. } => "sglang",
             Backend::TrtLlm { .. } => "trtllm",
         }
+    }
+
+    fn command(&self) -> &[String] {
+        match self {
+            Backend::Transformers { command } => command,
+            Backend::VLlm { command } => command,
+            Backend::SGLang { command } => command,
+            Backend::TrtLlm { command } => command,
+        }
+    }
+
+    fn create_parameters(&self) -> BackendParameters {
+        BackendParameters::new(self.command().to_vec())
+    }
+}
+
+impl Backend {
+    /// Deprecated: use `BackendTrait::name()` instead
+    pub fn as_str(&self) -> &str {
+        self.name()
     }
 
     /// Create a Transformers parameter builder

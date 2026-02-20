@@ -5,8 +5,8 @@ pub mod server;
 
 // Re-export commonly used types for convenience
 pub use backend::{
-    Backend, BackendParameters, SGLangParametersBuilder, TransformersParametersBuilder,
-    TrtLlmParametersBuilder, VLlmParametersBuilder,
+    Backend, BackendParameters, BackendTrait, SGLangParametersBuilder,
+    TransformersParametersBuilder, TrtLlmParametersBuilder, VLlmParametersBuilder,
 };
 pub use deployment::{
     DeploymentError, DeploymentResult, FlexServDeployment, FlexServHPCDeployment,
