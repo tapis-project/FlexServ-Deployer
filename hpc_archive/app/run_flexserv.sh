@@ -33,7 +33,7 @@ GPU_COUNT=4
 LOGIN_HOST_PREFIX="login1.stampede3"
 IS_DISTRIBUTED=0
 FLEXSERV_PORT=8000
-FLEXSERV_SECRET="flexserv"
+FLEXSERV_SECRET=""
 MODEL_NAME="Qwen/Qwen3-0.6B"
 
 if [[ "$1" == -* ]]; then
@@ -97,7 +97,7 @@ else
     LOGIN_HOST_PREFIX=${3:-login1.stampede3}
     IS_DISTRIBUTED=${4:-0}
     FLEXSERV_PORT=${5:-8000}
-    FLEXSERV_SECRET=${6:-"flexserv"}
+    FLEXSERV_SECRET=${6:-""}
     MODEL_NAME=${7:-"Qwen/Qwen3-0.6B"}
 fi
 
@@ -139,7 +139,7 @@ find_available_port() {
     echo ""
 }
 
-# 2. Verify port is available on compute node
+# 2. Verify flexserv port is available on compute node, if not suggest an alternative port
 echo "Checking if port ${FLEXSERV_PORT} is available on compute node..."
 if netstat -tuln 2>/dev/null | grep -q ":${FLEXSERV_PORT} "; then
     echo "ERROR: Port ${FLEXSERV_PORT} is already in use on $(hostname)"
@@ -183,9 +183,11 @@ if [ -z "${TAP_TOKEN}" ]; then
     exit 1
 fi
 
+FLEXSERV_SECRET=${FLEXSERV_SECRET:-${TAP_TOKEN}}
+
 # This is the remote port users will hit (on login nodes)
-export LOGIN_PORT="$(tap_get_port)"
-echo "TACC: TAP login-node port: ${LOGIN_PORT}"
+export LOGIN_PORT=${LOGIN_PORT:-"$(tap_get_port)"}
+echo "FlexServ login-node port: ${LOGIN_PORT}"
 
 
 export LOCAL_PORT="${FLEXSERV_PORT}"
@@ -300,41 +302,45 @@ trap cleanup EXIT INT TERM
 export GPUS_PER_NODE=$GPU_COUNT
 export WORLD_SIZE=$((SLURM_NNODES * GPUS_PER_NODE))
 
-MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-MASTER_PORT=$(
-    srun --nodes=1 --ntasks=1 -w "$MASTER_ADDR" \
-    bash -lc 'python - << "PY"
-import socket, random
-for _ in range(200):
-    p = random.randint(20000, 45000)
-    s = socket.socket()
-    try:
-        s.bind(("", p))
-        s.close()
-        print(p)
-        break
-    except OSError:
-        pass
-PY'
-)
 
-# NCCL bits (adjust iface names to your cluster)
-export NCCL_ASYNC_ERROR_HANDLING=1
-export NCCL_DEBUG=INFO
-export NCCL_IB_DISABLE=0
+# ======================= Distributed setup (if enabled) =======================
+if [ "$IS_DISTRIBUTED" -ne 0 ]; then
+    MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+    MASTER_PORT=$(
+        srun --nodes=1 --ntasks=1 -w "$MASTER_ADDR" \
+        bash -lc 'python - << "PY"
+    import socket, random
+    for _ in range(200):
+        p = random.randint(20000, 45000)
+        s = socket.socket()
+        try:
+            s.bind(("", p))
+            s.close()
+            print(p)
+            break
+        except OSError:
+            pass
+    PY'
+    )
 
-if command -v ibdev2netdev &> /dev/null; then
-    # ibdev2netdev exists, use it
-    IB_INTERFACE=$(ibdev2netdev | head -n1 | awk '{print $5}')
-else
-    # Fallback to ip link
-    IB_INTERFACE=$(ip link show | grep 'ib' | head -1 | awk '{print $2}'|tr -d ':')
-fi
+    # NCCL bits (adjust iface names to your cluster)
+    export NCCL_ASYNC_ERROR_HANDLING=1
+    export NCCL_DEBUG=INFO
+    export NCCL_IB_DISABLE=0
 
-export NCCL_SOCKET_IFNAME=${IB_INTERFACE}
+    if command -v ibdev2netdev &> /dev/null; then
+        # ibdev2netdev exists, use it
+        IB_INTERFACE=$(ibdev2netdev | head -n1 | awk '{print $5}')
+    else
+        # Fallback to ip link
+        IB_INTERFACE=$(ip link show | grep 'ib' | head -1 | awk '{print $2}'|tr -d ':')
+    fi
+
+    export NCCL_SOCKET_IFNAME=${IB_INTERFACE}
+
+
 
 export VENV_PATH=${VENV_PATH:-$WORK/venvs}
-
 echo "VENV_PATH=${VENV_PATH}"
 
 
