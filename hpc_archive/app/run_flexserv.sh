@@ -7,20 +7,18 @@ set -e
 # Parse arguments (supports both named args in any order and legacy positional args)
 print_usage() {
     echo "Usage (named, order-independent):"
-    echo "  $0 --login-port <port> [--gpu-count <count>] [--login-host <prefix>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>]"
-    echo "  $0 --login-port 18080 --secret flexserv --gpu-count 4"
+    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>]"
+    echo "  $0 --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
-    echo "  $0 <login_port> <gpu_count> <login_host> [is_distributed] [flexserv_port] [secret] [model_name]"
+    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] "
     echo ""
     echo "Arguments:"
-    echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
-    echo "  gpu_count / --gpu-count         GPU count per node (default: 4)"
-    echo "  login_host / --login-host       Login host prefix (default: login1.stampede3)"
-    echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
     echo "  secret / --secret               FlexServ auth secret (default: flexserv)"
     echo "  model_name / --model-name       Default model name/path (default: Qwen/Qwen3-0.6B)"
+    echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
+    echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
 }
 
 if [ "$#" -eq 0 ]; then
@@ -28,27 +26,17 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-LOGIN_PORT=""
-GPU_COUNT=4
-LOGIN_HOST_PREFIX="login1.stampede3"
-IS_DISTRIBUTED=0
 FLEXSERV_PORT=8000
 FLEXSERV_SECRET=""
 MODEL_NAME="Qwen/Qwen3-0.6B"
+LOGIN_PORT=""
+IS_DISTRIBUTED=0
 
 if [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --login-port)
                 LOGIN_PORT="$2"
-                shift 2
-            ;;
-            --gpu-count)
-                GPU_COUNT="$2"
-                shift 2
-            ;;
-            --login-host|--login-host-prefix)
-                LOGIN_HOST_PREFIX="$2"
                 shift 2
             ;;
             --is-distributed)
@@ -87,18 +75,16 @@ if [[ "$1" == -* ]]; then
         esac
     done
 else
-    if [ "$#" -lt 1 ] || [ "$#" -gt 7 ]; then
+    if [ "$#" -lt 1 ] || [ "$#" -gt 5 ]; then
         print_usage
         exit 1
     fi
     
-    LOGIN_PORT=$1
-    GPU_COUNT=${2:-4}
-    LOGIN_HOST_PREFIX=${3:-login1.stampede3}
-    IS_DISTRIBUTED=${4:-0}
-    FLEXSERV_PORT=${5:-8000}
-    FLEXSERV_SECRET=${6:-""}
-    MODEL_NAME=${7:-"Qwen/Qwen3-0.6B"}
+    FLEXSERV_PORT=${1:-8000}
+    FLEXSERV_SECRET=${2:-""}
+    MODEL_NAME=${3:-"Qwen/Qwen3-0.6B"}
+    LOGIN_PORT=$4
+    IS_DISTRIBUTED=${5:-0}
 fi
 
 if [ -z "$LOGIN_PORT" ]; then
