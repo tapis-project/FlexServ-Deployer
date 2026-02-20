@@ -95,6 +95,29 @@ fi
 
 HUGGINGFACE_TOKEN=${HF_TOKEN:-""}
 
+GPU_COUNT=0
+
+# Try nvidia-smi only if it both exists AND works
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    GPU_COUNT=$(nvidia-smi -L | wc -l)
+elif [ -d /proc/driver/nvidia/gpus ]; then
+    GPU_COUNT=$(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | wc -l || true)
+fi
+
+# Check from Slurm environment variables 
+GPU_COUNT=${SLURM_GPUS_ON_NODE:-${GPU_COUNT}}
+
+# If GPUs detected → set CUDA_VISIBLE_DEVICES
+if [ "$GPU_COUNT" -gt 0 ]; then
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+    echo "Detected $GPU_COUNT NVIDIA GPU(s)"
+    echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+else
+    echo "No NVIDIA GPUs detected. Running in CPU mode."
+    unset CUDA_VISIBLE_DEVICES || true
+fi
+
 # Temporarily disable distributed mode:
 
 IS_DISTRIBUTED=0
