@@ -87,12 +87,6 @@ else
     IS_DISTRIBUTED=${5:-0}
 fi
 
-if [ -z "$LOGIN_PORT" ]; then
-    echo "ERROR: login_port is required (use --login-port <port> or positional arg #1)."
-    print_usage
-    exit 1
-fi
-
 HUGGINGFACE_TOKEN=${HF_TOKEN:-""}
 
 GPU_COUNT=0
