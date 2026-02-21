@@ -68,6 +68,6 @@ jobs:
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: Tapis Job Bundle (${{ steps.meta.outputs.tag }})
-          generate_release_notes: true
+          generate_release_notes: false
           files: |
             dist/${{ steps.meta.outputs.zip_name }}
