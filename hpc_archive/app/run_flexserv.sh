@@ -94,11 +94,11 @@ GPU_COUNT=0
 # Try nvidia-smi only if it both exists AND works
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
     GPU_COUNT=$(nvidia-smi -L | wc -l)
-elif [ -d /proc/driver/nvidia/gpus ]; then
+    elif [ -d /proc/driver/nvidia/gpus ]; then
     GPU_COUNT=$(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | wc -l || true)
 fi
 
-# Check from Slurm environment variables 
+# Check from Slurm environment variables
 GPU_COUNT=${SLURM_GPUS_ON_NODE:-${GPU_COUNT}}
 
 # If GPUs detected → set CUDA_VISIBLE_DEVICES
@@ -325,12 +325,12 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
             pass
     PY'
     )
-
+    
     # NCCL bits (adjust iface names to your cluster)
     export NCCL_ASYNC_ERROR_HANDLING=1
     export NCCL_DEBUG=INFO
     export NCCL_IB_DISABLE=0
-
+    
     if command -v ibdev2netdev &> /dev/null; then
         # ibdev2netdev exists, use it
         IB_INTERFACE=$(ibdev2netdev | head -n1 | awk '{print $5}')
@@ -338,9 +338,9 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
         # Fallback to ip link
         IB_INTERFACE=$(ip link show | grep 'ib' | head -1 | awk '{print $2}'|tr -d ':')
     fi
-
+    
     export NCCL_SOCKET_IFNAME=${IB_INTERFACE}
-
+fi
 
 
 export VENV_PATH=${VENV_PATH:-$WORK/venvs}
