@@ -235,11 +235,11 @@ echo "FlexServ running on compute node: $(hostname):${FLEXSERV_PORT}"
 echo "Forwarding to login node port: ${LOGIN_PORT}"
 echo ""
 
-# Determine login node (try to use the one we're connected through)
-LOGIN_NODE=${TACC_LOGIN_NODE:-"${LOGIN_HOST_PREFIX}.tacc.utexas.edu"}
-echo "Using login node: ${LOGIN_NODE}"
+# # Determine login node (try to use the one we're connected through)
+# LOGIN_NODE=${TACC_LOGIN_NODE:-"${LOGIN_HOST_PREFIX}.tacc.utexas.edu"}
+# echo "Using login node: ${LOGIN_NODE}"
 
-# Start reverse SSH tunnel in background
+# # Start reverse SSH tunnel in background
 # -R forwards remote (login node) port to local (compute node) port
 # -N means no remote command, just port forwarding
 # -f runs in background
@@ -393,7 +393,5 @@ else
     --flexserv-token ${FLEXSERV_SECRET} \
     --attn-implementation ${FLEXSERV_ATTN_IMPL:-sdpa}
 fi
-
-
 # If we reach here, container exited normally
 echo "FlexServ container stopped"
