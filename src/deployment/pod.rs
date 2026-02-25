@@ -285,9 +285,7 @@ impl FlexServPodDeployment {
         }
 
         // Model dir in volume: single directory name (e.g. openai-community/gpt2 -> openai-community_gpt2).
-        // The pod downloads the model from Hugging Face to /app/models/<model_dir_name> at startup.
         let model_dir_name = self.server.default_model.replace('/', "_");
-
         // --- Create pod ---
         let image = self
             .options
@@ -310,19 +308,6 @@ impl FlexServPodDeployment {
             .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
         let flexserv_token = format!("{}{}", flexserv_secret, model_dir_name);
 
-        // Pod downloads the model from Hugging Face to /app/models/<model_dir_name> at startup, then starts the server.
-        let skip_model_download = self.server.default_model.is_empty()
-            || self.server.default_model == "no-model-yet";
-        let model_id_for_pod = if skip_model_download {
-            String::new()
-        } else {
-            self.server.default_model.clone()
-        };
-        let model_revision = self
-            .server
-            .model_revision
-            .as_deref()
-            .unwrap_or("main");
         let hf_token = self
             .server
             .hf_token
@@ -335,20 +320,10 @@ impl FlexServPodDeployment {
         let cli_args = backend_params.to_cli_args();
         let exec_line = Self::build_pod_exec_line(&cmd_prefix, &cli_args);
 
-        // Startup script: download model (if MODEL_ID set) then start server.
+        // Startup script: just start the backend server (no model download).
         let startup_script = format!(
             "set -e; \
-            echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; \
-            if [ -n \"$MODEL_ID\" ]; then \
-              echo 'Downloading model...'; \
-              /app/venvs/transformers/bin/python -c \"\
-import os; from huggingface_hub import snapshot_download; \
-snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', \
-local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), \
-token=os.environ.get('HF_TOKEN') or None)\
-\"; \
-              echo 'Model download complete'; \
-            fi; \
+            echo 'FlexServ startup: MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; \
             echo 'Starting FlexServ server...'; \
             {}",
             exec_line
@@ -360,8 +335,6 @@ token=os.environ.get('HF_TOKEN') or None)\
             ("MODEL_NAME", serde_json::json!(model_dir_name)),
             ("FLEXSERV_SECRET", serde_json::json!(flexserv_secret)),
             ("FLEXSERV_TOKEN", serde_json::json!(flexserv_token)),
-            ("MODEL_ID", serde_json::json!(model_id_for_pod)),
-            ("MODEL_REVISION", serde_json::json!(model_revision)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
