@@ -284,7 +284,9 @@ impl FlexServDeployment for FlexServPodDeployment {
 
         // Build backend parameter set for pod (trait), then copy directly into NewPod.
         let params = self.server.backend.build_params_for_pod(&self.server);
-        let cli_args = params.to_cli_args();
+        // Pod runtime owns model path and auth token injection, so these flags are excluded here.
+        const POD_CLI_ARG_EXCLUDES: &[&str] = &["default-model", "flexserv-token"];
+        let cli_args = params.to_cli_args_excluding(POD_CLI_ARG_EXCLUDES);
         let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
         let arguments: Vec<String> = [vec![model_path], cli_args, vec!["--flexserv-token".to_string(), flexserv_token.clone()]]
             .into_iter()

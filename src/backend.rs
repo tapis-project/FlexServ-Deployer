@@ -51,10 +51,9 @@ pub trait BuildBackendParameterSet {
 }
 
 impl BuildBackendParameterSet for Backend {
-    fn build_params_for_pod(&self, server: &FlexServInstance) -> BackendParameterSet {
+    fn build_params_for_pod(&self, _server: &FlexServInstance) -> BackendParameterSet {
         match self {
             Backend::Transformers { command_prefix } => TransformersParameterSetBuilder::new(command_prefix.clone())
-                .default_model(&server.default_model)
                 .host("0.0.0.0")
                 .port(8000)
                 .build(),
@@ -117,11 +116,14 @@ impl BackendParameterSet {
     }
 
     /// Convert params to CLI args (e.g. `--host 0.0.0.0 --port 8000`).
-    /// Skips `flexserv-token` so the pod script can inject `"$FLEXSERV_TOKEN"` at runtime.
-    /// Skips `default-model` because the model path is passed as a positional argument
-    /// in the pod exec line (`$MODEL_REPO/$MODEL_NAME`), not as a flag.
     /// Bool true => `--key`, bool false => omitted.
     pub fn to_cli_args(&self) -> Vec<String> {
+        self.to_cli_args_excluding(&[])
+    }
+
+    /// Convert params to CLI args while excluding specific keys.
+    /// This lets deployment layers (pod/HPC) own policy for omitted params.
+    pub fn to_cli_args_excluding(&self, excluded_keys: &[&str]) -> Vec<String> {
         let mut out = Vec::new();
         let mut keys: Vec<&String> = self.params.keys().collect();
         keys.sort();
@@ -130,7 +132,7 @@ impl BackendParameterSet {
                 Some(v) => v,
                 None => continue,
             };
-            if key == "flexserv-token" || key == "default-model" {
+            if excluded_keys.contains(&key.as_str()) {
                 continue;
             }
             match value {
@@ -354,6 +356,7 @@ impl TrtLlmParameterSetBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::FlexServInstance;
 
     #[test]
     fn test_backend_as_str() {
@@ -400,7 +403,22 @@ mod tests {
         assert!(args.contains(&"0.0.0.0".to_string()));
         assert!(args.contains(&"--port".to_string()));
         assert!(args.contains(&"8000".to_string()));
-        assert!(!args.iter().any(|a| a == "secret"), "flexserv-token omitted for script");
+        assert!(args.contains(&"--flexserv-token".to_string()));
+        assert!(args.contains(&"secret".to_string()));
+    }
+
+    #[test]
+    fn test_to_cli_args_excluding() {
+        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
+            .host("0.0.0.0")
+            .default_model("openai-community/gpt2")
+            .flexserv_token("secret")
+            .build();
+        let args = params.to_cli_args_excluding(&["default-model", "flexserv-token"]);
+        assert!(args.contains(&"--host".to_string()));
+        assert!(!args.contains(&"--default-model".to_string()));
+        assert!(!args.contains(&"--flexserv-token".to_string()));
+        assert!(!args.contains(&"secret".to_string()));
     }
 
     #[test]
@@ -426,6 +444,31 @@ mod tests {
                 "--z".to_string(),
                 "1".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn test_build_params_for_pod_vs_hpc_transformers() {
+        let backend = Backend::Transformers {
+            command_prefix: vec!["python".to_string(), "serve.py".to_string()],
+        };
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "openai-community/gpt2".to_string(),
+            None,
+            None,
+            None,
+            backend.clone(),
+        );
+
+        let pod_params = backend.build_params_for_pod(&server);
+        let hpc_params = backend.build_params_for_hpc(&server);
+
+        assert!(pod_params.get("default-model").is_none());
+        assert_eq!(
+            hpc_params.get("default-model").unwrap(),
+            "openai-community/gpt2"
         );
     }
 }
