@@ -200,8 +200,10 @@ impl FlexServPodDeployment {
         }
     }
 
-    /// Async implementation of create (Pod path only).
-    async fn create_impl(&mut self) -> Result<DeploymentResult, DeploymentError> {
+}
+
+impl FlexServDeployment for FlexServPodDeployment {
+    async fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.pods_config()?;
 
         // Clean up any existing pod/volume with these ids.
@@ -369,7 +371,7 @@ impl FlexServPodDeployment {
         })
     }
 
-    async fn start_impl(&self) -> Result<DeploymentResult, DeploymentError> {
+    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.pods_config()?;
         let pod_resp = pods_api::start_pod(&config, &self.pod_id)
             .await
@@ -389,7 +391,7 @@ impl FlexServPodDeployment {
         })
     }
 
-    async fn stop_impl(&self) -> Result<DeploymentResult, DeploymentError> {
+    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.pods_config()?;
         let pod_resp = pods_api::stop_pod(&config, &self.pod_id)
             .await
@@ -409,7 +411,7 @@ impl FlexServPodDeployment {
         })
     }
 
-    async fn terminate_impl(&self) -> Result<DeploymentResult, DeploymentError> {
+    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.pods_config()?;
 
         // Delete pod and volume together. Try both even if one fails.
@@ -466,7 +468,7 @@ impl FlexServPodDeployment {
         })
     }
 
-    async fn monitor_impl(&self) -> Result<DeploymentResult, DeploymentError> {
+    async fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.pods_config()?;
 
         let pod_resp = pods_api::get_pod(&config, &self.pod_id, None, None)
@@ -497,28 +499,6 @@ impl FlexServPodDeployment {
             tapis_tenant: self.server.tenant_url.clone(),
             model_id: self.server.default_model.clone(),
         })
-    }
-}
-
-impl FlexServDeployment for FlexServPodDeployment {
-    async fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
-        self.create_impl().await
-    }
-
-    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
-        self.start_impl().await
-    }
-
-    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
-        self.stop_impl().await
-    }
-
-    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
-        self.terminate_impl().await
-    }
-
-    async fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
-        self.monitor_impl().await
     }
 }
 
