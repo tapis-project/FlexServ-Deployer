@@ -151,7 +151,7 @@ fn main() -> Result<(), DeploymentError> {
         None,  // hf_token (optional; for gated/private HF models)
         None,  // default_embedding_model
         Backend::Transformers {
-            command: vec!["python".to_string()],
+            command_prefix: vec!["python".to_string()],
         },
     );
 
@@ -211,7 +211,7 @@ let server = FlexServInstance::new(
     None,  // model_revision
     None,  // hf_token (optional; for gated/private HF models)
     None,
-    Backend::Transformers { command: vec!["python".to_string()] },
+    Backend::Transformers { command_prefix: vec!["python".to_string()] },
 );
 
 let options = PodDeploymentOptions {

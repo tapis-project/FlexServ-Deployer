@@ -10,7 +10,7 @@ fn main() {
         None,
         None,
         Backend::Transformers {
-            command: vec![
+            command_prefix: vec![
                 "/app/venvs/transformers/bin/python".to_string(),
                 "/app/python/flexserv.py".to_string(),
             ],

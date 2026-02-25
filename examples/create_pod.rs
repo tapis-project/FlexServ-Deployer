@@ -60,7 +60,10 @@ async fn main() -> Result<(), DeploymentError> {
         hf_token,
         None,
         Backend::Transformers {
-            command: vec!["python".to_string()],
+            command_prefix: vec![
+                "/app/venvs/transformers/bin/python".to_string(),
+                "/app/flexserv/python/backend/transformers/backend_server.py".to_string(),
+            ],
         },
     );
 

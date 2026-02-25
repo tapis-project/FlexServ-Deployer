@@ -49,7 +49,7 @@ mod tests {
             None,
             None,
             Backend::VLlm {
-                command: vec!["python".to_string(), "-m".to_string(), "vllm".to_string()],
+                command_prefix: vec!["python".to_string(), "-m".to_string(), "vllm".to_string()],
             },
         );
 

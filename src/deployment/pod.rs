@@ -321,14 +321,14 @@ impl FlexServDeployment for FlexServPodDeployment {
         resources.mem_limit = Some(self.options.mem_limit_mb.unwrap_or(8192));
         resources.gpus = Some(self.options.gpus.unwrap_or(0));
 
-        // NewPod run: copy directly from BackendParameterSet (command, args, env).
+        // NewPod run: copy directly from BackendParameterSet (command_prefix, args, env).
         let mut new_pod = models::NewPod::new(self.pod_id.clone());
         new_pod.image = Some(image);
         new_pod.description = Some(format!(
             "FlexServ pod for {}@{}",
             self.server.tapis_user, self.server.default_model
         ));
-        new_pod.command = Some(Some(params.command.clone()));
+        new_pod.command = Some(Some(params.command_prefix.clone()));
         new_pod.arguments = Some(Some(arguments));
         new_pod.environment_variables = Some(env_vars);
         new_pod.status_requested = Some("ON".to_string());
@@ -522,7 +522,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
 
@@ -540,7 +540,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let options = PodDeploymentOptions {
@@ -575,7 +575,7 @@ mod tests {
             tapis,
             model,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
             PodDeploymentOptions::default(),
         );
@@ -593,7 +593,7 @@ mod tests {
             "openai-community/gpt2".to_string(),
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         )
         .unwrap();
@@ -610,7 +610,7 @@ mod tests {
             "gpt2".to_string(),
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         )
         .unwrap_err();
@@ -627,7 +627,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let deployment = FlexServPodDeployment::new(server, "dummy-token".to_string());
@@ -647,7 +647,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let d1 = FlexServPodDeployment::new(server, "token".to_string());
@@ -659,7 +659,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let d2 = FlexServPodDeployment::new(server2, "token".to_string());
@@ -677,7 +677,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let uuid1 = "550e8400-e29b-41d4-a716-446655440000";
@@ -711,7 +711,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
         let d = FlexServPodDeployment::new(server, "token".to_string());

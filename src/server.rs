@@ -243,7 +243,7 @@ mod tests {
             None, 
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
 
@@ -261,7 +261,7 @@ mod tests {
             None, 
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             },
         );
 
@@ -278,7 +278,7 @@ mod tests {
             .tapis_user("myuser")
             .model("openai-community/gpt2")
             .backend(Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             })
             .build()
             .unwrap();
@@ -293,7 +293,7 @@ mod tests {
             .tenant_url("https://tacc.tapis.io")
             .model("gpt2")
             .backend(Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             })
             .build()
             .unwrap_err();
@@ -306,7 +306,7 @@ mod tests {
             .tenant_url("https://tacc.tapis.io")
             .tapis_user("u")
             .backend(Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             })
             .build()
             .unwrap_err();
@@ -320,7 +320,7 @@ mod tests {
             .tapis_user("u")
             .model("m")
             .backend(Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             })
             .build()
             .unwrap_err();
@@ -341,7 +341,7 @@ mod tests {
             default_embedding_model: None,
         };
         let server = FlexServInstance::from_configs(&tapis, &model, Backend::Transformers {
-            command: vec!["python".to_string()],
+            command_prefix: vec!["python".to_string()],
         });
         assert_eq!(server.tenant_url, tapis.tenant_url);
         assert_eq!(server.default_model, model.model_id);
@@ -354,7 +354,7 @@ mod tests {
             .tapis_user("u")
             .model("gpt2")
             .backend(Backend::Transformers {
-                command: vec!["python".to_string()],
+                command_prefix: vec!["python".to_string()],
             })
             .build()
             .unwrap();

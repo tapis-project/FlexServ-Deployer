@@ -39,7 +39,7 @@ fn make_server(tenant_url: &str, model_id: &str) -> FlexServInstance {
         std::env::var("HF_TOKEN").ok(),
         None,
         Backend::Transformers {
-            command: vec!["python".to_string()],
+            command_prefix: vec!["python".to_string()],
         },
     )
 }
