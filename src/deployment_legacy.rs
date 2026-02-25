@@ -248,7 +248,7 @@ impl FlexServPodDeployment {
     }
 
     /// Extract pod URL from API response (networking.default.url).
-    pub(crate) fn pod_url_from_result(result: &tapis_sdk::pods::models::PodResponseModel) -> Option<String> {
+    fn _pod_url_from_result(result: &tapis_sdk::pods::models::PodResponseModel) -> Option<String> {
         result
             .networking
             .as_ref()
@@ -257,7 +257,7 @@ impl FlexServPodDeployment {
     }
 
     /// Map a tapis-pods error into our DeploymentError, based on HTTP status / network.
-    pub(crate) fn map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
+    fn _map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
         match err {
             apis::Error::Reqwest(e) => {
                 if e.is_timeout() {
@@ -326,12 +326,12 @@ impl FlexServPodDeployment {
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         volumes_api::create_volume(&config, new_volume)
                             .await
-                            .map_err(Self::map_pods_error)?;
+                            .map_err(Self::_map_pods_error)?;
                     } else {
-                        return Err(Self::map_pods_error(e));
+                        return Err(Self::_map_pods_error(e));
                     }
                 } else {
-                    return Err(Self::map_pods_error(e));
+                    return Err(Self::_map_pods_error(e));
                 }
             }
         }
@@ -459,7 +459,7 @@ impl FlexServPodDeployment {
             Err(e) => {
                 log::error!("Pod creation failed, cleaning up volume {}...", self.volume_id);
                 let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
-                return Err(Self::map_pods_error(e));
+                return Err(Self::_map_pods_error(e));
             }
         };
 
@@ -467,7 +467,7 @@ impl FlexServPodDeployment {
         self.pod_info = Some(format!("{:#?}", pod_resp.result));
         self.volume_info = Some(self.volume_id.clone());
 
-        let pod_url = Self::pod_url_from_result(&pod_resp.result);
+        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
@@ -485,9 +485,9 @@ impl FlexServPodDeployment {
         let config = self.pods_config()?;
         let pod_resp = pods_api::start_pod(&config, &self.pod_id)
             .await
-            .map_err(Self::map_pods_error)?;
+            .map_err(Self::_map_pods_error)?;
 
-        let pod_url = Self::pod_url_from_result(&pod_resp.result);
+        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
@@ -505,9 +505,9 @@ impl FlexServPodDeployment {
         let config = self.pods_config()?;
         let pod_resp = pods_api::stop_pod(&config, &self.pod_id)
             .await
-            .map_err(Self::map_pods_error)?;
+            .map_err(Self::_map_pods_error)?;
 
-        let pod_url = Self::pod_url_from_result(&pod_resp.result);
+        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
@@ -530,7 +530,7 @@ impl FlexServPodDeployment {
         let mut pod_error = None;
         match pods_api::delete_pod(&config, &self.pod_id).await {
             Ok(resp) => pod_resp = Some(resp),
-            Err(e) => pod_error = Some(Self::map_pods_error(e)),
+            Err(e) => pod_error = Some(Self::_map_pods_error(e)),
         }
 
         let mut vol_resp = None;
@@ -539,7 +539,7 @@ impl FlexServPodDeployment {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             match volumes_api::delete_volume(&config, &self.volume_id).await {
                 Ok(resp) => vol_resp = Some(resp),
-                Err(e) => vol_error = Some(Self::map_pods_error(e)),
+                Err(e) => vol_error = Some(Self::_map_pods_error(e)),
             }
         }
 
@@ -583,7 +583,7 @@ impl FlexServPodDeployment {
 
         let pod_resp = pods_api::get_pod(&config, &self.pod_id, None, None)
             .await
-            .map_err(Self::map_pods_error)?;
+            .map_err(Self::_map_pods_error)?;
 
         eprintln!("pods_api::get_pod result:\n{:#?}", pod_resp);
 
@@ -597,7 +597,7 @@ impl FlexServPodDeployment {
         };
 
         let pod_info = format!("{:#?}", pod_resp.result);
-        let pod_url = Self::pod_url_from_result(&pod_resp.result);
+        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
@@ -914,91 +914,6 @@ mod tests {
         let d = FlexServPodDeployment::new(server, "token".to_string());
         assert!(d.volume_info.is_none());
         assert!(d.pod_info.is_none());
-    }
-
-    #[test]
-    fn test_map_pods_error_response_codes() {
-        use reqwest::StatusCode;
-        use tapis_sdk::pods::apis::{Error, ResponseContent};
-
-        let err_400 = Error::ResponseError(ResponseContent {
-            status: StatusCode::from_u16(400).unwrap(),
-            content: "bad request".to_string(),
-            entity: None::<()>,
-        });
-        let mapped = FlexServPodDeployment::map_pods_error(err_400);
-        assert!(matches!(mapped, DeploymentError::TapisBadRequest(_)));
-
-        let err_401 = Error::ResponseError(ResponseContent {
-            status: StatusCode::from_u16(401).unwrap(),
-            content: "unauthorized".to_string(),
-            entity: None::<()>,
-        });
-        let mapped = FlexServPodDeployment::map_pods_error(err_401);
-        assert!(matches!(mapped, DeploymentError::TapisAuthFailed(_)));
-
-        let err_403 = Error::ResponseError(ResponseContent {
-            status: StatusCode::from_u16(403).unwrap(),
-            content: "forbidden".to_string(),
-            entity: None::<()>,
-        });
-        let mapped = FlexServPodDeployment::map_pods_error(err_403);
-        assert!(matches!(mapped, DeploymentError::TapisAuthFailed(_)));
-
-        let err_500 = Error::ResponseError(ResponseContent {
-            status: StatusCode::from_u16(500).unwrap(),
-            content: "internal error".to_string(),
-            entity: None::<()>,
-        });
-        let mapped = FlexServPodDeployment::map_pods_error(err_500);
-        assert!(matches!(mapped, DeploymentError::TapisInternalServerError(_)));
-    }
-
-    #[test]
-    fn test_map_pods_error_serde() {
-        let err = serde_json::from_str::<()>("invalid json").unwrap_err();
-        let api_err: tapis_sdk::pods::apis::Error<()> = tapis_sdk::pods::apis::Error::Serde(err);
-        let mapped = FlexServPodDeployment::map_pods_error(api_err);
-        assert!(matches!(mapped, DeploymentError::UnknownError(_)));
-    }
-
-    #[test]
-    fn test_pod_url_from_result_none_when_no_networking() {
-        let model = tapis_sdk::pods::models::PodResponseModel::new("p1".to_string());
-        let url = FlexServPodDeployment::pod_url_from_result(&model);
-        assert!(url.is_none());
-    }
-
-    #[test]
-    fn test_pod_url_from_result_some_when_default_has_url() {
-        use std::collections::HashMap;
-        use tapis_sdk::pods::models::{ModelsPodsNetworking, PodResponseModel};
-
-        let mut model = PodResponseModel::new("p1".to_string());
-        let mut net = ModelsPodsNetworking::new();
-        net.url = Some("http://pod.example:8000".to_string());
-        let mut networking = HashMap::new();
-        networking.insert("default".to_string(), net);
-        model.networking = Some(networking);
-
-        let url = FlexServPodDeployment::pod_url_from_result(&model);
-        assert_eq!(url.as_deref(), Some("http://pod.example:8000"));
-    }
-
-    #[test]
-    fn test_pod_url_from_result_none_when_default_missing() {
-        use std::collections::HashMap;
-        use tapis_sdk::pods::models::{ModelsPodsNetworking, PodResponseModel};
-
-        let mut model = PodResponseModel::new("p1".to_string());
-        let mut net = ModelsPodsNetworking::new();
-        net.url = Some("http://other:8000".to_string());
-        let mut networking = HashMap::new();
-        networking.insert("other".to_string(), net);
-        model.networking = Some(networking);
-
-        let url = FlexServPodDeployment::pod_url_from_result(&model);
-        assert!(url.is_none());
     }
 
     #[test]

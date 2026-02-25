@@ -1,7 +1,7 @@
 //! Example: run Pod deployment create against TAPIS.
 //!
-//! By default uses openai-community/gpt2: the pod downloads the model from Hugging Face
-//! to the volume at startup, then starts the backend server (no deployer bandwidth used).
+//! Creates a volume and pod; the pod expects the model to already be present in the
+//! volume at /app/models/<model_name> (FlexServ does not download models at startup).
 //!
 //! Set env vars then run:
 //!
@@ -9,11 +9,16 @@
 //!   export TAPIS_TOKEN=<your-jwt>
 //!   cargo run --example create_pod
 //!
-//! To skip model download (pod starts without a model):
+//! Set the model (no built-in default; pod expects model at /app/models/<model_name>):
 //!
-//!   FLEXSERV_NO_MODEL=1 cargo run --example create_pod
+//!   export FLEXSERV_MODEL_ID=openai-community/gpt2
+//!   cargo run --example create_pod
 //!
-//! For gated/private models, set HF_TOKEN so the pod can download:
+//! Placeholder (no real model path):
+//!
+//!   FLEXSERV_MODEL_ID=no-model-yet cargo run --example create_pod
+//!
+//! Optional HF_TOKEN (for backends that need it):
 //!
 //!   export HF_TOKEN=<your-hf-token>
 //!   cargo run --example create_pod
@@ -44,11 +49,8 @@ async fn main() -> Result<(), DeploymentError> {
         std::process::exit(1);
     };
 
-    // Default: GPT-2 — pod downloads from HF at startup. Use FLEXSERV_NO_MODEL=1 to skip.
-    let model_id = match std::env::var("FLEXSERV_NO_MODEL").ok().as_deref() {
-        Some(v) if v == "1" || v.eq_ignore_ascii_case("true") => "no-model-yet".to_string(),
-        _ => "openai-community/gpt2".to_string(),
-    };
+    // Model id: from FLEXSERV_MODEL_ID (no built-in default; pod expects model at /app/models/<model_name>).
+    let model_id = std::env::var("FLEXSERV_MODEL_ID").unwrap_or_else(|_| "no-model-yet".to_string());
     let hf_token = std::env::var("HF_TOKEN").ok();
     let server = FlexServInstance::new(
         tenant_url,
@@ -64,7 +66,6 @@ async fn main() -> Result<(), DeploymentError> {
 
     let mut deployment = FlexServPodDeployment::new(server, tapis_token);
 
-    println!("Creating pod deployment (volume + pod; pod will download model at startup)...");
     let result = deployment.create().await?;
 
     match result {
@@ -88,9 +89,9 @@ async fn main() -> Result<(), DeploymentError> {
             }
             println!("  tapis_user: {}", tapis_user);
             println!("  tapis_tenant: {}", tapis_tenant);
-            println!("  model_id:   {}", model_id);
-            let auth_hint = model_id.replace('/', "_");
-            println!("  auth_token: {} (use as Authorization: Bearer or X-FlexServ-Secret; add FLEXSERV_SECRET prefix if you set it)", auth_hint);
+            println!("  model_id:   {}  (use this in request JSON: \"model\": \"...\" )", model_id);
+            let auth_token = model_id.replace('/', "_");
+            println!("  auth_token: {} (use as Authorization: Bearer or X-FlexServ-Secret; add FLEXSERV_SECRET prefix if you set it)", auth_token);
             println!("  pod_info (first 400 chars): {}", pod_info.chars().take(400).collect::<String>());
         }
         DeploymentResult::HPCResult { .. } => unreachable!("pod deployment returns PodResult"),

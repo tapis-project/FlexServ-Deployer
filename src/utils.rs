@@ -19,11 +19,6 @@ pub fn normalize_tenant_url(url: &str) -> String {
     format!("https://{}", s)
 }
 
-/// Returns true if the string contains only ASCII lowercase letters and digits.
-pub fn is_lowercase_alphanumeric(s: &str) -> bool {
-    s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-}
-
 /// Normalize a string to lowercase ASCII alphanumeric only (e.g. strip dashes from a UUID).
 /// Useful for deriving stable IDs from user input.
 pub fn normalize_to_lowercase_alphanumeric(s: &str) -> String {
@@ -53,19 +48,6 @@ mod tests {
         assert_eq!(normalize_tenant_url("https://tacc.tapis.io"), "https://tacc.tapis.io");
         assert_eq!(normalize_tenant_url("  tacc.tapis.io  "), "https://tacc.tapis.io");
         assert_eq!(normalize_tenant_url(""), "");
-    }
-
-    #[test]
-    fn test_is_lowercase_alphanumeric() {
-        assert!(is_lowercase_alphanumeric(""));
-        assert!(is_lowercase_alphanumeric("a"));
-        assert!(is_lowercase_alphanumeric("abc123"));
-        assert!(is_lowercase_alphanumeric("p1a2b3"));
-        assert!(!is_lowercase_alphanumeric("aBc"));
-        assert!(!is_lowercase_alphanumeric("Uppercase"));
-        assert!(!is_lowercase_alphanumeric("with-dash"));
-        assert!(!is_lowercase_alphanumeric("with_underscore"));
-        assert!(!is_lowercase_alphanumeric("space "));
     }
 
     #[test]

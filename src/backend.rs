@@ -120,11 +120,13 @@ impl BackendParameters {
 
     /// Convert params to CLI args (e.g. `--host 0.0.0.0 --port 8000`).
     /// Skips `flexserv-token` so the pod script can inject `"$FLEXSERV_TOKEN"` at runtime.
+    /// Skips `default-model` because the model path is passed as a positional argument
+    /// in the pod exec line (`$MODEL_REPO/$MODEL_NAME`), not as a flag.
     /// Bool true => `--key`, bool false => omitted.
     pub fn to_cli_args(&self) -> Vec<String> {
         let mut out = Vec::new();
         for (key, value) in &self.params {
-            if key == "flexserv-token" {
+            if key == "flexserv-token" || key == "default-model" {
                 continue;
             }
             match value {
