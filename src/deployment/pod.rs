@@ -1,5 +1,5 @@
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
-use crate::backend::{Backend, BackendParameters};
+use crate::backend::{Backend, BuildBackendParameterSet};
 use crate::server::{FlexServInstance, ModelConfig, TapisConfig, ValidationError};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tapis_sdk::pods::apis;
@@ -170,40 +170,6 @@ impl FlexServPodDeployment {
             .and_then(|net| net.url.clone())
     }
 
-    /// Build BackendParameters for the pod from server config (command/args/env from backend module).
-    fn build_pod_backend_params(server: &FlexServInstance) -> BackendParameters {
-        match &server.backend {
-            Backend::Transformers { .. } => server
-                .backend
-                .transformers()
-                .default_model(&server.default_model)
-                .host("0.0.0.0")
-                .port(8000)
-                .build(),
-            Backend::VLlm { .. } => server.backend.vllm().build(),
-            Backend::SGLang { .. } => server.backend.sglang().build(),
-            Backend::TrtLlm { .. } => server.backend.trtllm().build(),
-        }
-    }
-
-    /// Build the exec line for the pod startup script: prefix + model_path + cli_args + --flexserv-token.
-    fn build_pod_exec_line(cmd_prefix: &[String], cli_args: &[String]) -> String {
-        let prefix_str = cmd_prefix
-            .iter()
-            .map(|a| if a.contains(' ') { format!("\"{}\"", a) } else { a.clone() })
-            .collect::<Vec<_>>()
-            .join(" ");
-        let args_str = cli_args
-            .iter()
-            .map(|a| if a.contains(' ') { format!("\"{}\"", a) } else { a.clone() })
-            .collect::<Vec<_>>()
-            .join(" ");
-        format!(
-            "exec {} \"$MODEL_REPO/$MODEL_NAME\" {} --flexserv-token \"$FLEXSERV_TOKEN\"",
-            prefix_str, args_str
-        )
-    }
-
     /// Map a tapis-pods error into our DeploymentError, based on HTTP status / network.
     fn _map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
         match err {
@@ -314,20 +280,14 @@ impl FlexServPodDeployment {
             .clone()
             .or_else(|| std::env::var("HF_TOKEN").ok());
 
-        // Build backend command/args/env from the backend module.
-        let backend_params = Self::build_pod_backend_params(&self.server);
-        let cmd_prefix = self.server.backend.default_pod_command_prefix();
-        let cli_args = backend_params.to_cli_args();
-        let exec_line = Self::build_pod_exec_line(&cmd_prefix, &cli_args);
-
-        // Startup script: just start the backend server (no model download).
-        let startup_script = format!(
-            "set -e; \
-            echo 'FlexServ startup: MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; \
-            echo 'Starting FlexServ server...'; \
-            {}",
-            exec_line
-        );
+        // Build backend parameter set for pod (trait), then copy directly into NewPod.
+        let params = self.server.backend.build_params_for_pod(&self.server);
+        let cli_args = params.to_cli_args();
+        let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
+        let arguments: Vec<String> = [vec![model_path], cli_args, vec!["--flexserv-token".to_string(), flexserv_token.clone()]]
+            .into_iter()
+            .flatten()
+            .collect();
 
         let mut env_vars: std::collections::HashMap<String, serde_json::Value> = [
             ("MODEL_REPO", serde_json::json!(MODEL_REPO_PATH)),
@@ -339,7 +299,7 @@ impl FlexServPodDeployment {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
-        for (k, v) in &backend_params.env {
+        for (k, v) in &params.env {
             env_vars.insert(k.clone(), serde_json::json!(v));
         }
         if let Some(ref t) = hf_token {
@@ -359,14 +319,15 @@ impl FlexServPodDeployment {
         resources.mem_limit = Some(self.options.mem_limit_mb.unwrap_or(8192));
         resources.gpus = Some(self.options.gpus.unwrap_or(0));
 
+        // NewPod run: copy directly from BackendParameterSet (command, args, env).
         let mut new_pod = models::NewPod::new(self.pod_id.clone());
         new_pod.image = Some(image);
         new_pod.description = Some(format!(
             "FlexServ pod for {}@{}",
             self.server.tapis_user, self.server.default_model
         ));
-        new_pod.command = Some(Some(vec!["/bin/sh".to_string()]));
-        new_pod.arguments = Some(Some(vec!["-c".to_string(), startup_script.to_string()]));
+        new_pod.command = Some(Some(params.command.clone()));
+        new_pod.arguments = Some(Some(arguments));
         new_pod.environment_variables = Some(env_vars);
         new_pod.status_requested = Some("ON".to_string());
         new_pod.volume_mounts = Some(volume_mounts);

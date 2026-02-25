@@ -21,12 +21,13 @@ A Rust library and web server for deploying FlexServ on Tapis Pods or HPC system
 
 ### Backend Module (`backend.rs`)
 - **Backend enum**: Supports Transformers, vLLM, SGLang, and TRT-LLM
-- **BackendParameters**: Flexible configuration for backend-specific settings
-- **Parameter Builders**: Type-safe builders for each backend:
-  - `TransformersParametersBuilder`
-  - `VLlmParametersBuilder`
-  - `SGLangParametersBuilder`
-  - `TrtLlmParametersBuilder`
+- **BackendParameterSet**: Built parameter set (command, params, env) for a backend
+- **BuildBackendParameterSet** trait on `Backend`: `build_params_for_pod(server)` and `build_params_for_hpc(server)` return a `BackendParameterSet`
+- **Parameter set builders** (each has `.build()` → `BackendParameterSet`):
+  - `TransformersParameterSetBuilder`
+  - `VLlmParameterSetBuilder`
+  - `SGLangParameterSetBuilder`
+  - `TrtLlmParameterSetBuilder`
 
 ### Server Module (`server.rs`)
 - **FlexServInstance**: Server instance configuration with tenant URL, user, model info, and backend
@@ -124,7 +125,7 @@ use flexserv_deployer::{
 };
 ```
 
-Optional: `FlexServHPCDeployment`, backend parameter types (`TransformersParametersBuilder`, etc.).
+Optional: `FlexServHPCDeployment`, backend types (`BackendParameterSet`, `TransformersParameterSetBuilder`, etc.).
 
 ### Create a new pod deployment
 

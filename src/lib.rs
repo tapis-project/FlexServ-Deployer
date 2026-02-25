@@ -6,8 +6,8 @@ mod utils;
 
 // Re-export commonly used types for convenience
 pub use backend::{
-    Backend, BackendParameters, SGLangParametersBuilder, TransformersParametersBuilder,
-    TrtLlmParametersBuilder, VLlmParametersBuilder,
+    Backend, BackendParameterSet, BuildBackendParameterSet, SGLangParameterSetBuilder,
+    TransformersParameterSetBuilder, TrtLlmParameterSetBuilder, VLlmParameterSetBuilder,
 };
 pub use deployment::{
     DeploymentError, DeploymentResult, FlexServDeployment, FlexServHPCDeployment,

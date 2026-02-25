@@ -1,3 +1,10 @@
+//! Backend parameter sets and builders for pod/HPC deployment.
+//!
+//! - **Parameter set** = built result (`BackendParameterSet`): command, params, env.
+//! - **Parameter set builder** = builder type (e.g. `TransformersParameterSetBuilder`) with `.build()`.
+//! - **Trait** `BuildBackendParameterSet` on `Backend`: `build_params_for_pod(server)` and `build_params_for_hpc(server)` produce a `BackendParameterSet` for that target.
+
+use crate::server::FlexServInstance;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -50,51 +57,84 @@ impl Backend {
         }
     }
 
-    /// Create a Transformers parameter builder
-    pub fn transformers(&self) -> TransformersParametersBuilder {
+    /// Create a Transformers parameter set builder
+    pub fn transformers(&self) -> TransformersParameterSetBuilder {
         match self {
             Backend::Transformers { command } => {
-                TransformersParametersBuilder::new(command.clone())
+                TransformersParameterSetBuilder::new(command.clone())
             }
             _ => panic!("Backend is not Transformers"),
         }
     }
 
-    /// Create a vLLM parameter builder
-    pub fn vllm(&self) -> VLlmParametersBuilder {
+    /// Create a vLLM parameter set builder
+    pub fn vllm(&self) -> VLlmParameterSetBuilder {
         match self {
-            Backend::VLlm { command } => VLlmParametersBuilder::new(command.clone()),
+            Backend::VLlm { command } => VLlmParameterSetBuilder::new(command.clone()),
             _ => panic!("Backend is not vLLM"),
         }
     }
 
-    /// Create an SGLang parameter builder
-    pub fn sglang(&self) -> SGLangParametersBuilder {
+    /// Create an SGLang parameter set builder
+    pub fn sglang(&self) -> SGLangParameterSetBuilder {
         match self {
-            Backend::SGLang { command } => SGLangParametersBuilder::new(command.clone()),
+            Backend::SGLang { command } => SGLangParameterSetBuilder::new(command.clone()),
             _ => panic!("Backend is not SGLang"),
         }
     }
 
-    /// Create a TRT-LLM parameter builder
-    pub fn trtllm(&self) -> TrtLlmParametersBuilder {
+    /// Create a TRT-LLM parameter set builder
+    pub fn trtllm(&self) -> TrtLlmParameterSetBuilder {
         match self {
-            Backend::TrtLlm { command } => TrtLlmParametersBuilder::new(command.clone()),
+            Backend::TrtLlm { command } => TrtLlmParameterSetBuilder::new(command.clone()),
             _ => panic!("Backend is not TRT-LLM"),
         }
     }
 }
 
-/// Backend-specific parameters
-/// This is a flexible JSON object that varies by backend
+/// Trait to build backend parameter sets for pod or HPC deployment.
+pub trait BuildBackendParameterSet {
+    fn build_params_for_pod(&self, server: &FlexServInstance) -> BackendParameterSet;
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> BackendParameterSet;
+}
+
+impl BuildBackendParameterSet for Backend {
+    fn build_params_for_pod(&self, server: &FlexServInstance) -> BackendParameterSet {
+        match self {
+            Backend::Transformers { .. } => self
+                .transformers()
+                .default_model(&server.default_model)
+                .host("0.0.0.0")
+                .port(8000)
+                .build(),
+            Backend::VLlm { .. } => self.vllm().build(),
+            Backend::SGLang { .. } => self.sglang().build(),
+            Backend::TrtLlm { .. } => self.trtllm().build(),
+        }
+    }
+
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> BackendParameterSet {
+        match self {
+            Backend::Transformers { .. } => self
+                .transformers()
+                .default_model(&server.default_model)
+                .build(),
+            Backend::VLlm { .. } => self.vllm().build(),
+            Backend::SGLang { .. } => self.sglang().build(),
+            Backend::TrtLlm { .. } => self.trtllm().build(),
+        }
+    }
+}
+
+/// Built parameter set for a backend (command, params, env). Used for pod or HPC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackendParameters {
+pub struct BackendParameterSet {
     pub command: Vec<String>,
     pub params: HashMap<String, Value>,
     pub env: HashMap<String, String>,
 }
 
-impl BackendParameters {
+impl BackendParameterSet {
     pub fn new(command: Vec<String>) -> Self {
         Self {
             command,
@@ -152,15 +192,15 @@ impl BackendParameters {
     }
 }
 
-/// Builder for transformers parameters
-pub struct TransformersParametersBuilder {
-    params: BackendParameters,
+/// Builder for Transformers parameter set (use .build() or Backend::build_params_for_pod/hpc).
+pub struct TransformersParameterSetBuilder {
+    params: BackendParameterSet,
 }
 
-impl TransformersParametersBuilder {
+impl TransformersParameterSetBuilder {
     pub fn new(command: Vec<String>) -> Self {
         Self {
-            params: BackendParameters::new(command),
+            params: BackendParameterSet::new(command),
         }
     }
 
@@ -251,20 +291,20 @@ impl TransformersParametersBuilder {
         self
     }
 
-    pub fn build(self) -> BackendParameters {
+    pub fn build(self) -> BackendParameterSet {
         self.params
     }
 }
 
-/// Builder for vLLM parameters
-pub struct VLlmParametersBuilder {
-    params: BackendParameters,
+/// Builder for vLLM parameter set.
+pub struct VLlmParameterSetBuilder {
+    params: BackendParameterSet,
 }
 
-impl VLlmParametersBuilder {
+impl VLlmParameterSetBuilder {
     pub fn new(command: Vec<String>) -> Self {
         Self {
-            params: BackendParameters::new(command),
+            params: BackendParameterSet::new(command),
         }
     }
 
@@ -288,20 +328,20 @@ impl VLlmParametersBuilder {
         self
     }
 
-    pub fn build(self) -> BackendParameters {
+    pub fn build(self) -> BackendParameterSet {
         self.params
     }
 }
 
-/// Builder for SGLang parameters
-pub struct SGLangParametersBuilder {
-    params: BackendParameters,
+/// Builder for SGLang parameter set.
+pub struct SGLangParameterSetBuilder {
+    params: BackendParameterSet,
 }
 
-impl SGLangParametersBuilder {
+impl SGLangParameterSetBuilder {
     pub fn new(command: Vec<String>) -> Self {
         Self {
-            params: BackendParameters::new(command),
+            params: BackendParameterSet::new(command),
         }
     }
 
@@ -315,20 +355,20 @@ impl SGLangParametersBuilder {
         self
     }
 
-    pub fn build(self) -> BackendParameters {
+    pub fn build(self) -> BackendParameterSet {
         self.params
     }
 }
 
-/// Builder for TRT-LLM parameters
-pub struct TrtLlmParametersBuilder {
-    params: BackendParameters,
+/// Builder for TRT-LLM parameter set.
+pub struct TrtLlmParameterSetBuilder {
+    params: BackendParameterSet,
 }
 
-impl TrtLlmParametersBuilder {
+impl TrtLlmParameterSetBuilder {
     pub fn new(command: Vec<String>) -> Self {
         Self {
-            params: BackendParameters::new(command),
+            params: BackendParameterSet::new(command),
         }
     }
 
@@ -342,7 +382,7 @@ impl TrtLlmParametersBuilder {
         self
     }
 
-    pub fn build(self) -> BackendParameters {
+    pub fn build(self) -> BackendParameterSet {
         self.params
     }
 }
@@ -360,8 +400,8 @@ mod tests {
     }
 
     #[test]
-    fn test_backend_parameters() {
-        let mut params = BackendParameters::new(vec!["python".to_string()]);
+    fn test_backend_parameter_set() {
+        let mut params = BackendParameterSet::new(vec!["python".to_string()]);
         params.insert_param("test", "value");
         params.insert_env("ENV_VAR", "test");
 
@@ -371,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_transformers_builder() {
-        let params = TransformersParametersBuilder::new(vec!["python".to_string()])
+        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
             .default_model("meta-llama/Llama-2-7b")
             .port(8080)
             .trust_remote_code(true)
@@ -386,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_to_cli_args() {
-        let params = TransformersParametersBuilder::new(vec!["python".to_string()])
+        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
             .host("0.0.0.0")
             .port(8000)
             .flexserv_token("secret")
