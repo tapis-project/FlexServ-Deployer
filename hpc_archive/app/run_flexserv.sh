@@ -206,7 +206,7 @@ export LOCAL_PORT="${FLEXSERV_PORT}"
 # 3. Set up environment variables
 export MODEL_REPO=${MODEL_REPO:-"${SCRATCH}/flexserv/models"}
 export HF_HOME=${HF_HOME:-"${SCRATCH}/flexserv/hf_cache"}
-export HUGGINGFACE_HUB_CACHE=${HF_HOME}/hub"
+export HUGGINGFACE_HUB_CACHE=${HF_HOME}/hub
 # export APPTAINER_IMAGE="${SCRATCH}/flexserv/flexserv_latest.sif"
 export APPTAINER_IMAGE="docker://zhangwei217245/flexserv-transformers:1.3.0"
 
