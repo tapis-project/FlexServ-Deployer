@@ -7,11 +7,11 @@ set -e
 # Parse arguments (supports both named args in any order and legacy positional args)
 print_usage() {
     echo "Usage (named, order-independent):"
-    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>]"
+    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--enable-https]"
     echo "  $0 --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
-    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] "
+    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https]"
     echo ""
     echo "Arguments:"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
@@ -19,6 +19,7 @@ print_usage() {
     echo "  model_name / --model-name       Default model name/path (default: Qwen/Qwen3-0.6B)"
     echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
     echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
+    echo "  enable_https / --enable-https   Whether to enable HTTPS (default: disabled)"
 }
 
 if [ "$#" -eq 0 ]; then
@@ -31,7 +32,7 @@ FLEXSERV_SECRET=""
 MODEL_NAME="Qwen/Qwen3-0.6B"
 LOGIN_PORT=""
 IS_DISTRIBUTED=0
-
+ENABLE_HTTPS=0
 if [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -63,6 +64,10 @@ if [[ "$1" == -* ]]; then
                 MODEL_NAME="$2"
                 shift 2
             ;;
+            --enable-https)
+                ENABLE_HTTPS=1
+                shift
+            ;;
             -h|--help)
                 print_usage
                 exit 0
@@ -75,7 +80,7 @@ if [[ "$1" == -* ]]; then
         esac
     done
 else
-    if [ "$#" -lt 1 ] || [ "$#" -gt 5 ]; then
+    if [ "$#" -lt 1 ] || [ "$#" -gt 6 ]; then
         print_usage
         exit 1
     fi
@@ -85,6 +90,7 @@ else
     MODEL_NAME=${3:-"Qwen/Qwen3-0.6B"}
     LOGIN_PORT=$4
     IS_DISTRIBUTED=${5:-0}
+    ENABLE_HTTPS=${6:-0}
 fi
 
 HUGGINGFACE_TOKEN=${HF_TOKEN:-""}
@@ -198,9 +204,9 @@ export LOCAL_PORT="${FLEXSERV_PORT}"
 ############## TAP environment set up complete ##############
 
 # 3. Set up environment variables
-export MODEL_REPO="${SCRATCH}/flexserv/models"
-export HF_HOME="${SCRATCH}/flexserv/hf_cache"
-export HUGGINGFACE_HUB_CACHE="${HF_HOME}/hub"
+export MODEL_REPO=${MODEL_REPO:-"${SCRATCH}/flexserv/models"}
+export HF_HOME=${HF_HOME:-"${SCRATCH}/flexserv/hf_cache"}
+export HUGGINGFACE_HUB_CACHE=${HF_HOME}/hub"
 # export APPTAINER_IMAGE="${SCRATCH}/flexserv/flexserv_latest.sif"
 export APPTAINER_IMAGE="docker://zhangwei217245/flexserv-transformers:1.3.0"
 
@@ -212,14 +218,6 @@ echo "Model repository: ${MODEL_REPO}"
 echo "Apptainer image: ${APPTAINER_IMAGE}"
 echo "Default model name: ${MODEL_NAME}"
 
-# Check if image exists
-# if [ ! -f "${APPTAINER_IMAGE}" ]; then
-#     echo "ERROR: Apptainer image not found at ${APPTAINER_IMAGE}"
-#     echo "Please build or pull the image first:"
-#     echo "  apptainer pull docker://zhangwei217245/flexserv:latest"
-#     exit 1
-# fi
-
 # 4. Set up reverse port forwarding to login node
 echo ""
 echo "======================================================================"
@@ -228,16 +226,6 @@ echo "======================================================================"
 echo "FlexServ running on compute node: $(hostname):${FLEXSERV_PORT}"
 echo "Forwarding to login node port: ${LOGIN_PORT}"
 echo ""
-
-# # Determine login node (try to use the one we're connected through)
-# LOGIN_NODE=${TACC_LOGIN_NODE:-"${LOGIN_HOST_PREFIX}.tacc.utexas.edu"}
-# echo "Using login node: ${LOGIN_NODE}"
-
-# # Start reverse SSH tunnel in background
-# -R forwards remote (login node) port to local (compute node) port
-# -N means no remote command, just port forwarding
-# -f runs in background
-# -o ServerAliveInterval=60 keeps connection alive
 
 # Create a reverse tunnel on each login node (login1..4)
 for i in 1 2 3 4; do
@@ -249,32 +237,18 @@ for i in 1 2 3 4; do
     "login${i}" || true
 done
 
-# echo "Starting reverse SSH tunnel..."
-# ssh -f -N -R ${LOGIN_PORT}:localhost:${FLEXSERV_PORT} \
-# -o ServerAliveInterval=60 \
-# -o ServerAliveCountMax=3 \
-# -o StrictHostKeyChecking=no \
-# ${LOGIN_NODE} &
-# SSH_TUNNEL_PID=$!
-# sleep 3
-
-# if ps -p ${SSH_TUNNEL_PID} > /dev/null 2>&1; then
-#     echo "✓ Reverse tunnel established (PID: ${SSH_TUNNEL_PID})"
-# else
-#     echo "WARNING: Could not verify tunnel PID (may still be running)"
-# fi
-
 HPC_HOST="${NODE_HOSTNAME_DOMAIN}"
+
+protocol="http"
+if [ "$ENABLE_HTTPS" -ne 0 ]; then
+    protocol="https"
+fi
 
 echo ""
 echo "======================================================================"
 echo "ACCESS INFORMATION"
 echo "======================================================================"
-echo "FlexServ is now accessible at:"
-echo ""
-# echo "  http://${LOGIN_NODE}:${LOGIN_PORT}"
-echo "  https://${HPC_HOST}:${LOGIN_PORT}"
-echo " Your TAP token is ${TAP_TOKEN}"
+echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  TAP token: ${TAP_TOKEN}"
 echo "Anyone on the TACC network or with VPN can access this URL directly!"
 echo "No additional SSH tunneling required from client machines."
 echo "======================================================================"
