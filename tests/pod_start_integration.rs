@@ -32,9 +32,7 @@ fn make_server(tenant_url: &str, model_id: &str) -> FlexServInstance {
         None,
         None,
         None,
-        Backend::Transformers {
-            command_prefix: vec!["python".to_string()],
-        },
+        Backend::Transformers { command: vec![] },
     )
 }
 

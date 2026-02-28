@@ -48,9 +48,7 @@ mod tests {
             None,
             None,
             None,
-            Backend::VLlm {
-                command_prefix: vec!["python".to_string(), "-m".to_string(), "vllm".to_string()],
-            },
+            Backend::VLlm { command: vec![] },
         );
 
         let deployment = FlexServHPCDeployment::new(server);

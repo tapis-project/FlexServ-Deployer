@@ -12,7 +12,7 @@ The **library** is the main product. The Actix-web binary is a thin wrapper and 
 
 - **Backend module** (`backend.rs`)
   - `Backend` enum: `Transformers`, `VLlm`, `SGLang`, `TrtLlm`
-  - `BackendParameterSet` (command_prefix + params + env)
+  - `BackendParameterSet` (command + params + env)
   - `BuildBackendParameterSet` trait:
     - `build_params_for_pod(&self, server)`
     - `build_params_for_hpc(&self, server)`
@@ -88,7 +88,7 @@ async fn main() -> Result<(), DeploymentError> {
         std::env::var("HF_TOKEN").ok(), // optional HF token
         None,                         // default_embedding_model
         Backend::Transformers {
-            command_prefix: vec!["python".to_string()],
+            command: vec!["python".to_string()],
         },
     );
 
@@ -134,7 +134,7 @@ let server = FlexServInstance::new(
     None,
     std::env::var("HF_TOKEN").ok(),
     None,
-    Backend::Transformers { command_prefix: vec!["python".to_string()] },
+    Backend::Transformers { command: vec!["python".to_string()] },
 );
 
 let options = PodDeploymentOptions {

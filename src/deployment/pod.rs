@@ -1,5 +1,5 @@
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
-use crate::backend::{Backend, BuildBackendParameterSet};
+use crate::backend::Backend;
 use crate::server::{FlexServInstance, ModelConfig, TapisConfig, ValidationError};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tapis_sdk::pods::apis;
@@ -282,30 +282,28 @@ impl FlexServDeployment for FlexServPodDeployment {
             .clone()
             .or_else(|| std::env::var("HF_TOKEN").ok());
 
-        // Build backend parameter set for pod (trait), then copy directly into NewPod.
-        let params = self.server.backend.build_params_for_pod(&self.server);
-        // Pod runtime owns model path and auth token injection, so these flags are excluded here.
-        const POD_CLI_ARG_EXCLUDES: &[&str] = &["default-model", "flexserv-token"];
-        let cli_args = params.to_cli_args_excluding(POD_CLI_ARG_EXCLUDES);
-        let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
-        let arguments: Vec<String> = [vec![model_path], cli_args, vec!["--flexserv-token".to_string(), flexserv_token.clone()]]
-            .into_iter()
-            .flatten()
-            .collect();
+        // Default startup command + default args + user extra args (from server.backend).
+        let pod_params = self
+            .server
+            .backend
+            .parameter_set_builder()
+            .build_params_for_pod(&self.server);
 
-        let mut env_vars: std::collections::HashMap<String, serde_json::Value> = [
-            ("MODEL_REPO", serde_json::json!(MODEL_REPO_PATH)),
-            ("FLEXSERV_PORT", serde_json::json!("8000")),
-            ("MODEL_NAME", serde_json::json!(model_dir_name)),
-            ("FLEXSERV_SECRET", serde_json::json!(flexserv_secret)),
-            ("FLEXSERV_TOKEN", serde_json::json!(flexserv_token)),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-        for (k, v) in &params.env {
-            env_vars.insert(k.clone(), serde_json::json!(v));
-        }
+        let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
+        let mut arguments = pod_params.arguments.unwrap_or_default();
+        arguments.insert(0, model_path);
+        arguments.push("--flexserv-token".to_string());
+        arguments.push(flexserv_token.clone());
+
+        let mut env_vars: std::collections::HashMap<String, serde_json::Value> =
+            pod_params
+                .environment_variables
+                .unwrap_or_default();
+        env_vars.insert("MODEL_REPO".to_string(), serde_json::json!(MODEL_REPO_PATH));
+        env_vars.insert("FLEXSERV_PORT".to_string(), serde_json::json!("8000"));
+        env_vars.insert("MODEL_NAME".to_string(), serde_json::json!(model_dir_name));
+        env_vars.insert("FLEXSERV_SECRET".to_string(), serde_json::json!(flexserv_secret));
+        env_vars.insert("FLEXSERV_TOKEN".to_string(), serde_json::json!(flexserv_token));
         if let Some(ref t) = hf_token {
             env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
         }
@@ -323,14 +321,13 @@ impl FlexServDeployment for FlexServPodDeployment {
         resources.mem_limit = Some(self.options.mem_limit_mb.unwrap_or(8192));
         resources.gpus = Some(self.options.gpus.unwrap_or(0));
 
-        // NewPod run: copy directly from BackendParameterSet (command_prefix, args, env).
         let mut new_pod = models::NewPod::new(self.pod_id.clone());
         new_pod.image = Some(image);
         new_pod.description = Some(format!(
             "FlexServ pod for {}@{}",
             self.server.tapis_user, self.server.default_model
         ));
-        new_pod.command = Some(Some(params.command_prefix.clone()));
+        new_pod.command = pod_params.command.map(Some);
         new_pod.arguments = Some(Some(arguments));
         new_pod.environment_variables = Some(env_vars);
         new_pod.status_requested = Some("ON".to_string());
@@ -524,7 +521,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
 
@@ -542,7 +539,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let options = PodDeploymentOptions {
@@ -577,7 +574,7 @@ mod tests {
             tapis,
             model,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
             PodDeploymentOptions::default(),
         );
@@ -595,7 +592,7 @@ mod tests {
             "openai-community/gpt2".to_string(),
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         )
         .unwrap();
@@ -612,7 +609,7 @@ mod tests {
             "gpt2".to_string(),
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         )
         .unwrap_err();
@@ -629,7 +626,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let deployment = FlexServPodDeployment::new(server, "dummy-token".to_string());
@@ -649,7 +646,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d1 = FlexServPodDeployment::new(server, "token".to_string());
@@ -661,7 +658,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d2 = FlexServPodDeployment::new(server2, "token".to_string());
@@ -679,7 +676,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let uuid1 = "550e8400-e29b-41d4-a716-446655440000";
@@ -713,7 +710,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command_prefix: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d = FlexServPodDeployment::new(server, "token".to_string());

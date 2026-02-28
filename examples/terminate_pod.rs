@@ -43,9 +43,7 @@ async fn main() -> Result<(), DeploymentError> {
         None,
         None,
         None,
-        Backend::Transformers {
-            command_prefix: vec!["python".to_string()],
-        },
+        Backend::Transformers { command: vec![] },
     );
     let deployment = FlexServPodDeployment::from_existing(server, tapis_token, pod_id.clone(), volume_id.clone());
 

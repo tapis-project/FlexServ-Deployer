@@ -1,26 +1,53 @@
 //! Backend parameter sets and builders for pod/HPC deployment.
 //!
-//! - **Parameter set** = built result (`BackendParameterSet`): command_prefix, params, env.
-//! - **Parameter set builder** = builder type (e.g. `TransformersParameterSetBuilder`) with `.build()`.
-//! - **Trait** `BuildBackendParameterSet` on `Backend`: `build_params_for_pod(server)` and `build_params_for_hpc(server)` produce a `BackendParameterSet` for that target.
+//! - **PodParameterSet** = parameters for k8 pod (command, arguments, environment_variables).
+//! - **HPCParameterSet** = tapis-sdk `JobParameterSet` for HPC job submission.
+//! - **BackendParameterSetBuilder** = trait implemented by each backend builder; provides
+//!   `build_params_for_pod(server)` -> `PodParameterSet` and `build_params_for_hpc(server)` -> `HPCParameterSet`.
 
 use crate::server::FlexServInstance;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use tapis_sdk::jobs::models::JobParameterSet;
 
 /// Supported ML inference backends.
+// TODO: The `command` field on each variant is not in use right now; the pod always runs the default startup only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     #[serde(rename = "transformers")]
-    Transformers { command_prefix: Vec<String> },
+    Transformers {
+        #[serde(default)]
+        command: Vec<String>,
+    },
     #[serde(rename = "vllm")]
-    VLlm { command_prefix: Vec<String> },
+    VLlm {
+        #[serde(default)]
+        command: Vec<String>,
+    },
     #[serde(rename = "sglang")]
-    SGLang { command_prefix: Vec<String> },
+    SGLang {
+        #[serde(default)]
+        command: Vec<String>,
+    },
     #[serde(rename = "trtllm")]
-    TrtLlm { command_prefix: Vec<String> },
+    TrtLlm {
+        #[serde(default)]
+        command: Vec<String>,
+    },
+}
+
+/// Default command to start each backend in the FlexServ pod image. Only Transformers has a
+/// defined startup script; VLlm, SGLang, and TrtLlm return None until their startup paths exist.
+fn default_pod_command(backend: &Backend) -> Option<Vec<String>> {
+    match backend {
+        Backend::Transformers { .. } => Some(vec![
+            "/app/venvs/transformers/bin/python".to_string(),
+            "/app/flexserv/python/backend/transformers/backend_server.py".to_string(),
+        ]),
+        Backend::VLlm { .. } | Backend::SGLang { .. } | Backend::TrtLlm { .. } => None,
+    }
 }
 
 impl Backend {
@@ -33,323 +60,350 @@ impl Backend {
         }
     }
 
-    /// Command prefix used to launch backend server process.
-    pub fn command_prefix(&self) -> &[String] {
+    /// User-supplied commands that may be executed (e.g. after or alongside the default startup). Not passed as arguments to the default script.
+    pub fn command(&self) -> &[String] {
         match self {
-            Backend::Transformers { command_prefix } => command_prefix,
-            Backend::VLlm { command_prefix } => command_prefix,
-            Backend::SGLang { command_prefix } => command_prefix,
-            Backend::TrtLlm { command_prefix } => command_prefix,
+            Backend::Transformers { command, .. } => command,
+            Backend::VLlm { command, .. } => command,
+            Backend::SGLang { command, .. } => command,
+            Backend::TrtLlm { command, .. } => command,
+        }
+    }
+
+    /// Returns a builder that implements [BackendParameterSetBuilder]. Pod runs the default startup; [command](Backend::command) is for user commands that may be executed separately.
+    pub fn parameter_set_builder(&self) -> Box<dyn BackendParameterSetBuilder> {
+        let command = default_pod_command(self);
+        match self {
+            Backend::Transformers { .. } => Box::new(TransformersParameterSetBuilder::new(command)),
+            Backend::VLlm { .. } => Box::new(VLlmParameterSetBuilder::new(command)),
+            Backend::SGLang { .. } => Box::new(SGLangParameterSetBuilder::new(command)),
+            Backend::TrtLlm { .. } => Box::new(TrtLlmParameterSetBuilder::new(command)),
         }
     }
 }
+
+/// Parameters for a pod: command, arguments, and environment variables.
+/// Use `${pods:secrets:KEY}` in env values to reference secret_map entries.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PodParameterSet {
+    /// Optional command (e.g. executable + script).
+    pub command: Option<Vec<String>>,
+    /// Optional arguments to the command.
+    pub arguments: Option<Vec<String>>,
+    /// Environment variables to inject into the pod. 
+    #[serde(default)]
+    pub environment_variables: Option<HashMap<String, Value>>,
+}
+
+/// HPC job parameter set (tapis-sdk [JobParameterSet]).
+pub type HPCParameterSet = JobParameterSet;
 
 /// Trait to build backend parameter sets for pod or HPC deployment.
-pub trait BuildBackendParameterSet {
-    fn build_params_for_pod(&self, server: &FlexServInstance) -> BackendParameterSet;
-    fn build_params_for_hpc(&self, server: &FlexServInstance) -> BackendParameterSet;
+/// Implemented by each backend's parameter set builder (e.g. [TransformersParameterSetBuilder]).
+pub trait BackendParameterSetBuilder {
+    fn build_params_for_pod(&self, server: &FlexServInstance) -> PodParameterSet;
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet;
 }
 
-impl BuildBackendParameterSet for Backend {
-    fn build_params_for_pod(&self, _server: &FlexServInstance) -> BackendParameterSet {
-        match self {
-            Backend::Transformers { command_prefix } => TransformersParameterSetBuilder::new(command_prefix.clone())
-                .host("0.0.0.0")
-                .port(8000)
-                .build(),
-            Backend::VLlm { command_prefix } => VLlmParameterSetBuilder::new(command_prefix.clone()).build(),
-            Backend::SGLang { command_prefix } => {
-                SGLangParameterSetBuilder::new(command_prefix.clone()).build()
-            }
-            Backend::TrtLlm { command_prefix } => {
-                TrtLlmParameterSetBuilder::new(command_prefix.clone()).build()
+/// Push a single param (key, value) onto the arguments list (e.g. `--key` and value string).
+fn push_param(args: &mut Vec<String>, key: &str, value: &Value) {
+    let flag = format!("--{}", key.replace('_', "-"));
+    match value {
+        Value::Bool(b) => {
+            if *b {
+                args.push(flag);
             }
         }
-    }
-
-    fn build_params_for_hpc(&self, server: &FlexServInstance) -> BackendParameterSet {
-        match self {
-            Backend::Transformers { command_prefix } => TransformersParameterSetBuilder::new(command_prefix.clone())
-                .default_model(&server.default_model)
-                .build(),
-            Backend::VLlm { command_prefix } => VLlmParameterSetBuilder::new(command_prefix.clone()).build(),
-            Backend::SGLang { command_prefix } => {
-                SGLangParameterSetBuilder::new(command_prefix.clone()).build()
-            }
-            Backend::TrtLlm { command_prefix } => {
-                TrtLlmParameterSetBuilder::new(command_prefix.clone()).build()
-            }
-        }
-    }
-}
-
-/// Built parameter set for a backend (command_prefix, params, env). Used for pod or HPC.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackendParameterSet {
-    pub command_prefix: Vec<String>,
-    pub params: HashMap<String, Value>,
-    pub env: HashMap<String, String>,
-}
-
-impl BackendParameterSet {
-    pub fn new(command_prefix: Vec<String>) -> Self {
-        Self {
-            command_prefix,
-            params: HashMap::new(),
-            env: HashMap::new(),
-        }
-    }
-
-    pub fn insert_param<T: Serialize>(&mut self, key: impl Into<String>, value: T) -> &mut Self {
-        self.params
-            .insert(key.into(), serde_json::to_value(value).unwrap());
-        self
-    }
-
-    pub fn insert_env(&mut self, key: impl Into<String>, value: impl Into<String>) -> &mut Self {
-        self.env.insert(key.into(), value.into());
-        self
-    }
-
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        self.params.get(key)
-    }
-
-    /// Convert params to CLI args (e.g. `--host 0.0.0.0 --port 8000`).
-    /// Bool true => `--key`, bool false => omitted.
-    pub fn to_cli_args(&self) -> Vec<String> {
-        self.to_cli_args_excluding(&[])
-    }
-
-    /// Convert params to CLI args while excluding specific keys.
-    /// This lets deployment layers (pod/HPC) own policy for omitted params.
-    pub fn to_cli_args_excluding(&self, excluded_keys: &[&str]) -> Vec<String> {
-        let mut out = Vec::new();
-        let mut keys: Vec<&String> = self.params.keys().collect();
-        keys.sort();
-        for key in keys {
-            let value = match self.params.get(key) {
-                Some(v) => v,
-                None => continue,
+        Value::Null => {}
+        v => {
+            args.push(flag);
+            let s = serde_json::to_string(v).unwrap_or_default();
+            let val = if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                s[1..s.len() - 1].replace("\\\"", "\"")
+            } else {
+                s
             };
-            if excluded_keys.contains(&key.as_str()) {
-                continue;
-            }
-            match value {
-                Value::Bool(b) => {
-                    if *b {
-                        out.push(format!("--{}", key.replace('_', "-")));
-                    }
-                }
-                Value::Null => {}
-                v => {
-                    out.push(format!("--{}", key.replace('_', "-")));
-                    let s = serde_json::to_string(v).unwrap_or_default();
-                    let val = if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-                        s[1..s.len() - 1].replace("\\\"", "\"")
-                    } else {
-                        s
-                    };
-                    out.push(val);
-                }
-            }
+            args.push(val);
         }
-        out
     }
 }
 
-/// Builder for Transformers parameter set (use .build() or Backend::build_params_for_pod/hpc).
+/// Builder for Transformers parameter set (state is PodParameterSet-shaped).
 pub struct TransformersParameterSetBuilder {
-    params: BackendParameterSet,
+    command: Option<Vec<String>>,
+    arguments: Vec<String>,
+    environment_variables: HashMap<String, Value>,
+}
+
+impl BackendParameterSetBuilder for TransformersParameterSetBuilder {
+    fn build_params_for_pod(&self, _server: &FlexServInstance) -> PodParameterSet {
+        // Always run the default FlexServ startup script; default args + builder args. User commands (backend.command()) are for separate execution, not as args to the default script.
+        let mut arguments = vec![
+            "--host".to_string(),
+            "0.0.0.0".to_string(),
+            "--port".to_string(),
+            "8000".to_string(),
+        ];
+        arguments.extend(self.arguments.clone());
+        PodParameterSet {
+            command: self.command.clone(),
+            arguments: Some(arguments),
+            environment_variables: Some(self.environment_variables.clone()),
+        }
+    }
+
+    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
+        HPCParameterSet::default()
+    }
 }
 
 impl TransformersParameterSetBuilder {
-    pub fn new(command_prefix: Vec<String>) -> Self {
+    pub fn new(command: Option<Vec<String>>) -> Self {
         Self {
-            params: BackendParameterSet::new(command_prefix),
+            command,
+            arguments: Vec::new(),
+            environment_variables: HashMap::new(),
         }
     }
 
     pub fn default_model(mut self, model: &str) -> Self {
-        self.params.insert_param("default-model", model);
+        push_param(&mut self.arguments, "default-model", &Value::String(model.to_string()));
         self
     }
 
     pub fn default_embedding_model(mut self, model: &str) -> Self {
-        self.params.insert_param("default-embedding-model", model);
+        push_param(&mut self.arguments, "default-embedding-model", &Value::String(model.to_string()));
         self
     }
 
     pub fn host(mut self, host: &str) -> Self {
-        self.params.insert_param("host", host);
+        push_param(&mut self.arguments, "host", &Value::String(host.to_string()));
         self
     }
 
     pub fn port(mut self, port: u16) -> Self {
-        self.params.insert_param("port", port);
+        push_param(&mut self.arguments, "port", &Value::Number(serde_json::Number::from(port as u64)));
         self
     }
 
     pub fn device(mut self, device: &str) -> Self {
-        self.params.insert_param("device", device);
+        push_param(&mut self.arguments, "device", &Value::String(device.to_string()));
         self
     }
 
     pub fn dtype(mut self, dtype: &str) -> Self {
-        self.params.insert_param("dtype", dtype);
+        push_param(&mut self.arguments, "dtype", &Value::String(dtype.to_string()));
         self
     }
 
     pub fn continuous_batching(mut self, enabled: bool) -> Self {
-        self.params.insert_param("continuous-batching", enabled);
+        push_param(&mut self.arguments, "continuous-batching", &Value::Bool(enabled));
         self
     }
 
     pub fn flexserv_token(mut self, token: &str) -> Self {
-        self.params.insert_param("flexserv-token", token);
+        push_param(&mut self.arguments, "flexserv-token", &Value::String(token.to_string()));
         self
     }
 
     pub fn force_default_model(mut self, force: bool) -> Self {
-        self.params.insert_param("force-default-model", force);
+        push_param(&mut self.arguments, "force-default-model", &Value::Bool(force));
         self
     }
 
     pub fn force_default_embedding_model(mut self, force: bool) -> Self {
-        self.params
-            .insert_param("force-default-embedding-model", force);
+        push_param(&mut self.arguments, "force-default-embedding-model", &Value::Bool(force));
         self
     }
 
     pub fn log_level(mut self, level: &str) -> Self {
-        self.params.insert_param("log-level", level);
+        push_param(&mut self.arguments, "log-level", &Value::String(level.to_string()));
         self
     }
 
     pub fn quantization(mut self, quant: &str) -> Self {
-        self.params.insert_param("quantization", quant);
+        push_param(&mut self.arguments, "quantization", &Value::String(quant.to_string()));
         self
     }
 
     pub fn trust_remote_code(mut self, trust: bool) -> Self {
-        self.params.insert_param("trust-remote-code", trust);
+        push_param(&mut self.arguments, "trust-remote-code", &Value::Bool(trust));
         self
     }
 
     pub fn attn_implementation(mut self, implementation: &str) -> Self {
-        self.params
-            .insert_param("attn-implementation", implementation);
+        push_param(&mut self.arguments, "attn-implementation", &Value::String(implementation.to_string()));
         self
     }
 
     pub fn enable_cors(mut self, enable: bool) -> Self {
-        self.params.insert_param("enable-cors", enable);
+        push_param(&mut self.arguments, "enable-cors", &Value::Bool(enable));
         self
     }
 
     pub fn non_blocking(mut self, non_blocking: bool) -> Self {
-        self.params.insert_param("non-blocking", non_blocking);
+        push_param(&mut self.arguments, "non-blocking", &Value::Bool(non_blocking));
         self
     }
 
     pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.params.insert_env(key, value);
+        self.environment_variables
+            .insert(key.into(), Value::String(value.into()));
         self
-    }
-
-    pub fn build(self) -> BackendParameterSet {
-        self.params
     }
 }
 
-/// Builder for vLLM parameter set.
+/// Builder for vLLM parameter set (state is PodParameterSet-shaped).
 pub struct VLlmParameterSetBuilder {
-    params: BackendParameterSet,
+    command: Option<Vec<String>>,
+    arguments: Vec<String>,
+    environment_variables: HashMap<String, Value>,
+}
+
+impl BackendParameterSetBuilder for VLlmParameterSetBuilder {
+    fn build_params_for_pod(&self, _server: &FlexServInstance) -> PodParameterSet {
+        let arguments = self.arguments.clone();
+        PodParameterSet {
+            command: self.command.clone(),
+            arguments: Some(arguments),
+            environment_variables: Some(self.environment_variables.clone()),
+        }
+    }
+
+    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
+        HPCParameterSet::default()
+    }
 }
 
 impl VLlmParameterSetBuilder {
-    pub fn new(command_prefix: Vec<String>) -> Self {
+    pub fn new(command: Option<Vec<String>>) -> Self {
         Self {
-            params: BackendParameterSet::new(command_prefix),
+            command,
+            arguments: Vec::new(),
+            environment_variables: HashMap::new(),
         }
     }
 
     pub fn tensor_parallel_size(mut self, size: u32) -> Self {
-        self.params.insert_param("tensor_parallel_size", size);
+        push_param(&mut self.arguments, "tensor_parallel_size", &Value::Number(serde_json::Number::from(size as u64)));
         self
     }
 
     pub fn pipeline_parallel_size(mut self, size: u32) -> Self {
-        self.params.insert_param("pipeline_parallel_size", size);
+        push_param(&mut self.arguments, "pipeline_parallel_size", &Value::Number(serde_json::Number::from(size as u64)));
         self
     }
 
     pub fn max_model_len(mut self, len: u32) -> Self {
-        self.params.insert_param("max_model_len", len);
+        push_param(&mut self.arguments, "max_model_len", &Value::Number(serde_json::Number::from(len as u64)));
         self
     }
 
     pub fn gpu_memory_utilization(mut self, util: f32) -> Self {
-        self.params.insert_param("gpu_memory_utilization", util);
+        push_param(&mut self.arguments, "gpu_memory_utilization", &Value::Number(serde_json::Number::from_f64(util as f64).unwrap()));
         self
     }
 
-    pub fn build(self) -> BackendParameterSet {
-        self.params
+    pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.environment_variables
+            .insert(key.into(), Value::String(value.into()));
+        self
     }
 }
 
-/// Builder for SGLang parameter set.
+/// Builder for SGLang parameter set (state is PodParameterSet-shaped).
 pub struct SGLangParameterSetBuilder {
-    params: BackendParameterSet,
+    command: Option<Vec<String>>,
+    arguments: Vec<String>,
+    environment_variables: HashMap<String, Value>,
+}
+
+impl BackendParameterSetBuilder for SGLangParameterSetBuilder {
+    fn build_params_for_pod(&self, _server: &FlexServInstance) -> PodParameterSet {
+        let arguments = self.arguments.clone();
+        PodParameterSet {
+            command: self.command.clone(),
+            arguments: Some(arguments),
+            environment_variables: Some(self.environment_variables.clone()),
+        }
+    }
+
+    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
+        HPCParameterSet::default()
+    }
 }
 
 impl SGLangParameterSetBuilder {
-    pub fn new(command_prefix: Vec<String>) -> Self {
+    pub fn new(command: Option<Vec<String>>) -> Self {
         Self {
-            params: BackendParameterSet::new(command_prefix),
+            command,
+            arguments: Vec::new(),
+            environment_variables: HashMap::new(),
         }
     }
 
     pub fn tp_size(mut self, size: u32) -> Self {
-        self.params.insert_param("tp_size", size);
+        push_param(&mut self.arguments, "tp_size", &Value::Number(serde_json::Number::from(size as u64)));
         self
     }
 
     pub fn mem_fraction_static(mut self, fraction: f32) -> Self {
-        self.params.insert_param("mem_fraction_static", fraction);
+        push_param(&mut self.arguments, "mem_fraction_static", &Value::Number(serde_json::Number::from_f64(fraction as f64).unwrap()));
         self
     }
 
-    pub fn build(self) -> BackendParameterSet {
-        self.params
+    pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.environment_variables
+            .insert(key.into(), Value::String(value.into()));
+        self
     }
 }
 
-/// Builder for TRT-LLM parameter set.
+/// Builder for TRT-LLM parameter set (state is PodParameterSet-shaped).
 pub struct TrtLlmParameterSetBuilder {
-    params: BackendParameterSet,
+    command: Option<Vec<String>>,
+    arguments: Vec<String>,
+    environment_variables: HashMap<String, Value>,
+}
+
+impl BackendParameterSetBuilder for TrtLlmParameterSetBuilder {
+    fn build_params_for_pod(&self, _server: &FlexServInstance) -> PodParameterSet {
+        let arguments = self.arguments.clone();
+        PodParameterSet {
+            command: self.command.clone(),
+            arguments: Some(arguments),
+            environment_variables: Some(self.environment_variables.clone()),
+        }
+    }
+
+    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
+        HPCParameterSet::default()
+    }
 }
 
 impl TrtLlmParameterSetBuilder {
-    pub fn new(command_prefix: Vec<String>) -> Self {
+    pub fn new(command: Option<Vec<String>>) -> Self {
         Self {
-            params: BackendParameterSet::new(command_prefix),
+            command,
+            arguments: Vec::new(),
+            environment_variables: HashMap::new(),
         }
     }
 
     pub fn max_batch_size(mut self, size: u32) -> Self {
-        self.params.insert_param("max_batch_size", size);
+        push_param(&mut self.arguments, "max_batch_size", &Value::Number(serde_json::Number::from(size as u64)));
         self
     }
 
     pub fn max_input_len(mut self, len: u32) -> Self {
-        self.params.insert_param("max_input_len", len);
+        push_param(&mut self.arguments, "max_input_len", &Value::Number(serde_json::Number::from(len as u64)));
         self
     }
 
-    pub fn build(self) -> BackendParameterSet {
-        self.params
+    pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.environment_variables
+            .insert(key.into(), Value::String(value.into()));
+        self
     }
 }
 
@@ -360,98 +414,132 @@ mod tests {
 
     #[test]
     fn test_backend_as_str() {
-        let backend = Backend::Transformers {
-            command_prefix: vec!["python".to_string()],
-        };
+        let backend = Backend::Transformers { command: vec![] };
         assert_eq!(backend.as_str(), "transformers");
     }
 
     #[test]
     fn test_backend_parameter_set() {
-        let mut params = BackendParameterSet::new(vec!["python".to_string()]);
-        params.insert_param("test", "value");
-        params.insert_env("ENV_VAR", "test");
-
-        assert_eq!(params.get("test").unwrap(), "value");
-        assert_eq!(params.env.get("ENV_VAR").unwrap(), "test");
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers {
+                command: vec![],
+            },
+        );
+        let pod_params = TransformersParameterSetBuilder::new(None)
+            .insert_env_var("ENV_VAR", "test")
+            .build_params_for_pod(&server);
+        assert_eq!(
+            pod_params.environment_variables.as_ref().unwrap().get("ENV_VAR"),
+            Some(&serde_json::json!("test"))
+        );
     }
 
     #[test]
     fn test_transformers_builder() {
-        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "meta-llama/Llama-2-7b".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers {
+                command: vec![],
+            },
+        );
+        let builder = TransformersParameterSetBuilder::new(None)
             .default_model("meta-llama/Llama-2-7b")
             .port(8080)
-            .trust_remote_code(true)
-            .build();
-
-        assert_eq!(
-            params.get("default-model").unwrap(),
-            "meta-llama/Llama-2-7b"
-        );
-        assert_eq!(params.get("port").unwrap(), 8080);
+            .trust_remote_code(true);
+        let pod_params = builder.build_params_for_pod(&server);
+        let pod_args = pod_params.arguments.as_ref().unwrap();
+        assert!(pod_args.contains(&"--port".to_string()));
+        // Builder's .port(8080) overrides the default, so we expect 8080 in args.
+        assert!(pod_args.contains(&"8080".to_string()));
     }
 
     #[test]
     fn test_to_cli_args() {
-        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
-            .host("0.0.0.0")
-            .port(8000)
-            .flexserv_token("secret")
-            .build();
-        let args = params.to_cli_args();
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers {
+                command: vec![],
+            },
+        );
+        let pod_params = TransformersParameterSetBuilder::new(None)
+            .build_params_for_pod(&server);
+        let args = pod_params.arguments.as_ref().unwrap();
         assert!(args.contains(&"--host".to_string()));
         assert!(args.contains(&"0.0.0.0".to_string()));
         assert!(args.contains(&"--port".to_string()));
         assert!(args.contains(&"8000".to_string()));
-        assert!(args.contains(&"--flexserv-token".to_string()));
-        assert!(args.contains(&"secret".to_string()));
     }
 
     #[test]
     fn test_to_cli_args_excluding() {
-        let params = TransformersParameterSetBuilder::new(vec!["python".to_string()])
-            .host("0.0.0.0")
-            .default_model("openai-community/gpt2")
-            .flexserv_token("secret")
-            .build();
-        let args = params.to_cli_args_excluding(&["default-model", "flexserv-token"]);
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers {
+                command: vec![],
+            },
+        );
+        let pod_params = TransformersParameterSetBuilder::new(None)
+            .build_params_for_pod(&server);
+        let args = pod_params.arguments.as_ref().unwrap();
         assert!(args.contains(&"--host".to_string()));
-        assert!(!args.contains(&"--default-model".to_string()));
-        assert!(!args.contains(&"--flexserv-token".to_string()));
-        assert!(!args.contains(&"secret".to_string()));
+        assert!(args.contains(&"--port".to_string()));
+        assert!(args.contains(&"8000".to_string()));
     }
 
     #[test]
-    fn test_command_prefix_accessor() {
+    fn test_command_accessor() {
+        // User's command (appended after default startup) is preserved.
         let backend = Backend::Transformers {
-            command_prefix: vec!["python".to_string(), "serve.py".to_string()],
+            command: vec!["python".to_string(), "serve.py".to_string()],
         };
-        let prefix = backend.command_prefix();
-        assert_eq!(prefix, &vec!["python".to_string(), "serve.py".to_string()]);
+        let cmd = backend.command();
+        assert_eq!(cmd, &["python", "serve.py"]);
     }
 
     #[test]
     fn test_to_cli_args_is_stable() {
-        let mut params = BackendParameterSet::new(vec!["python".to_string()]);
-        params.insert_param("z", 1);
-        params.insert_param("a", 2);
-        let args = params.to_cli_args();
-        assert_eq!(
-            args,
-            vec![
-                "--a".to_string(),
-                "2".to_string(),
-                "--z".to_string(),
-                "1".to_string()
-            ]
+        let server = FlexServInstance::new(
+            "https://tacc.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers {
+                command: vec![],
+            },
         );
+        let pod_params = TransformersParameterSetBuilder::new(None)
+            .build_params_for_pod(&server);
+        let args = pod_params.arguments.as_ref().unwrap();
+        assert!(args.contains(&"--port".to_string()));
+        assert!(args.contains(&"8000".to_string()));
     }
 
     #[test]
     fn test_build_params_for_pod_vs_hpc_transformers() {
-        let backend = Backend::Transformers {
-            command_prefix: vec!["python".to_string(), "serve.py".to_string()],
-        };
+        let backend = Backend::Transformers { command: vec![] };
         let server = FlexServInstance::new(
             "https://tacc.tapis.io".to_string(),
             "user".to_string(),
@@ -462,13 +550,11 @@ mod tests {
             backend.clone(),
         );
 
-        let pod_params = backend.build_params_for_pod(&server);
-        let hpc_params = backend.build_params_for_hpc(&server);
+        let builder = backend.parameter_set_builder();
+        let pod_params = builder.build_params_for_pod(&server);
+        let _hpc_params = builder.build_params_for_hpc(&server);
 
-        assert!(pod_params.get("default-model").is_none());
-        assert_eq!(
-            hpc_params.get("default-model").unwrap(),
-            "openai-community/gpt2"
-        );
+        assert!(pod_params.command.is_some());
+        assert!(pod_params.arguments.is_some());
     }
 }

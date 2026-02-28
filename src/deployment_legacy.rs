@@ -688,7 +688,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
 
@@ -706,7 +706,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let options = PodDeploymentOptions {
@@ -741,7 +741,7 @@ mod tests {
             tapis,
             model,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
             PodDeploymentOptions::default(),
         );
@@ -759,7 +759,7 @@ mod tests {
             "openai-community/gpt2".to_string(),
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         )
         .unwrap();
@@ -776,7 +776,7 @@ mod tests {
             "gpt2".to_string(),
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         )
         .unwrap_err();
@@ -793,7 +793,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let deployment = FlexServPodDeployment::new(server, "dummy-token".to_string());
@@ -813,7 +813,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d1 = FlexServPodDeployment::new(server, "token".to_string());
@@ -825,7 +825,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d2 = FlexServPodDeployment::new(server2, "token".to_string());
@@ -843,7 +843,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let uuid1 = "550e8400-e29b-41d4-a716-446655440000";
@@ -877,7 +877,7 @@ mod tests {
             None,
             None,
             Backend::VLlm {
-                command: vec!["python".to_string(), "-m".to_string(), "vllm".to_string()],
+                command: vec![],
             },
         );
 
@@ -908,7 +908,7 @@ mod tests {
             None,
             None,
             Backend::Transformers {
-                command: vec!["python".to_string()],
+                command: vec![],
             },
         );
         let d = FlexServPodDeployment::new(server, "token".to_string());

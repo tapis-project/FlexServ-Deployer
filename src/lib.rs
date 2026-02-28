@@ -6,7 +6,7 @@ mod utils;
 
 // Re-export commonly used types for convenience
 pub use backend::{
-    Backend, BackendParameterSet, BuildBackendParameterSet, SGLangParameterSetBuilder,
+    Backend, BackendParameterSetBuilder, HPCParameterSet, PodParameterSet, SGLangParameterSetBuilder,
     TransformersParameterSetBuilder, TrtLlmParameterSetBuilder, VLlmParameterSetBuilder,
 };
 pub use deployment::{

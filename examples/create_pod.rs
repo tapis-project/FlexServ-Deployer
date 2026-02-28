@@ -59,12 +59,7 @@ async fn main() -> Result<(), DeploymentError> {
         None,
         hf_token,
         None,
-        Backend::Transformers {
-            command_prefix: vec![
-                "/app/venvs/transformers/bin/python".to_string(),
-                "/app/flexserv/python/backend/transformers/backend_server.py".to_string(),
-            ],
-        },
+        Backend::Transformers { command: vec![] },
     );
 
     let mut deployment = FlexServPodDeployment::new(server, tapis_token);

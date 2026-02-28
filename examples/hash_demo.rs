@@ -9,12 +9,7 @@ fn main() {
         None,
         None,
         None,
-        Backend::Transformers {
-            command_prefix: vec![
-                "/app/venvs/transformers/bin/python".to_string(),
-                "/app/python/flexserv.py".to_string(),
-            ],
-        },
+        Backend::Transformers { command: vec![] },
     );
 
     // Generate deployment hash
