@@ -314,7 +314,7 @@ impl FlexServDeployment for FlexServPodDeployment {
         }
 
         let mut net = models::ModelsPodsNetworking::new();
-        net.protocol = Some("https".to_string());
+        net.protocol = Some("http".to_string());
         net.port = Some(8000);
         let mut networking = std::collections::HashMap::new();
         networking.insert("default".to_string(), net);
