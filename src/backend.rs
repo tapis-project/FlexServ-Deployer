@@ -12,12 +12,12 @@ use std::collections::HashMap;
 use tapis_sdk::jobs::models::JobParameterSet;
 
 /// Supported ML inference backends.
-// TODO: The `command` field on each variant is not in use right now; the pod always runs the default startup only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     #[serde(rename = "transformers")]
     Transformers {
+        /// Commands run inside the pod before the inference server starts (e.g. warmup, model pre-load).
         #[serde(default)]
         command: Vec<String>,
     },
@@ -60,7 +60,8 @@ impl Backend {
         }
     }
 
-    /// User-supplied commands that may be executed (e.g. after or alongside the default startup). Not passed as arguments to the default script.
+    /// Commands to run inside the pod before the inference server starts (e.g. warmup, model pre-load).
+    /// Not yet executed in pod deployment.
     pub fn command(&self) -> &[String] {
         match self {
             Backend::Transformers { command, .. } => command,
@@ -70,7 +71,7 @@ impl Backend {
         }
     }
 
-    /// Returns a builder that implements [BackendParameterSetBuilder]. Pod runs the default startup; [command](Backend::command) is for user commands that may be executed separately.
+    /// Returns a builder that implements [BackendParameterSetBuilder].
     pub fn parameter_set_builder(&self) -> Box<dyn BackendParameterSetBuilder> {
         let command = default_pod_command(self);
         match self {
@@ -102,28 +103,28 @@ pub type HPCParameterSet = JobParameterSet;
 /// Implemented by each backend's parameter set builder (e.g. [TransformersParameterSetBuilder]).
 pub trait BackendParameterSetBuilder {
     fn build_params_for_pod(&self, server: &FlexServInstance) -> PodParameterSet;
+    /// TODO: HPC deployment is not yet implemented; all builders return an empty [HPCParameterSet].
     fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet;
 }
 
-/// Push a single param (key, value) onto the arguments list (e.g. `--key` and value string).
-fn push_param(args: &mut Vec<String>, key: &str, value: &Value) {
+/// Push `--key` (and value if non-bool/non-null) onto the arguments list.
+/// Booleans emit the flag only when `true`; `false` and null are silently ignored.
+fn push_param<T: Serialize>(args: &mut Vec<String>, key: &str, value: T) {
     let flag = format!("--{}", key.replace('_', "-"));
-    match value {
+    match serde_json::to_value(value).unwrap_or(Value::Null) {
         Value::Bool(b) => {
-            if *b {
+            if b {
                 args.push(flag);
             }
         }
         Value::Null => {}
+        Value::String(s) => {
+            args.push(flag);
+            args.push(s);
+        }
         v => {
             args.push(flag);
-            let s = serde_json::to_string(v).unwrap_or_default();
-            let val = if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-                s[1..s.len() - 1].replace("\\\"", "\"")
-            } else {
-                s
-            };
-            args.push(val);
+            args.push(v.to_string());
         }
     }
 }
@@ -153,7 +154,7 @@ impl BackendParameterSetBuilder for TransformersParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        HPCParameterSet::default()
+        todo!("HPC deployment is not yet implemented")
     }
 }
 
@@ -167,82 +168,82 @@ impl TransformersParameterSetBuilder {
     }
 
     pub fn default_model(mut self, model: &str) -> Self {
-        push_param(&mut self.arguments, "default-model", &Value::String(model.to_string()));
+        push_param(&mut self.arguments, "default-model", model);
         self
     }
 
     pub fn default_embedding_model(mut self, model: &str) -> Self {
-        push_param(&mut self.arguments, "default-embedding-model", &Value::String(model.to_string()));
+        push_param(&mut self.arguments, "default-embedding-model", model);
         self
     }
 
     pub fn host(mut self, host: &str) -> Self {
-        push_param(&mut self.arguments, "host", &Value::String(host.to_string()));
+        push_param(&mut self.arguments, "host", host);
         self
     }
 
     pub fn port(mut self, port: u16) -> Self {
-        push_param(&mut self.arguments, "port", &Value::Number(serde_json::Number::from(port as u64)));
+        push_param(&mut self.arguments, "port", port);
         self
     }
 
     pub fn device(mut self, device: &str) -> Self {
-        push_param(&mut self.arguments, "device", &Value::String(device.to_string()));
+        push_param(&mut self.arguments, "device", device);
         self
     }
 
     pub fn dtype(mut self, dtype: &str) -> Self {
-        push_param(&mut self.arguments, "dtype", &Value::String(dtype.to_string()));
+        push_param(&mut self.arguments, "dtype", dtype);
         self
     }
 
     pub fn continuous_batching(mut self, enabled: bool) -> Self {
-        push_param(&mut self.arguments, "continuous-batching", &Value::Bool(enabled));
+        push_param(&mut self.arguments, "continuous-batching", enabled);
         self
     }
 
     pub fn flexserv_token(mut self, token: &str) -> Self {
-        push_param(&mut self.arguments, "flexserv-token", &Value::String(token.to_string()));
+        push_param(&mut self.arguments, "flexserv-token", token);
         self
     }
 
     pub fn force_default_model(mut self, force: bool) -> Self {
-        push_param(&mut self.arguments, "force-default-model", &Value::Bool(force));
+        push_param(&mut self.arguments, "force-default-model", force);
         self
     }
 
     pub fn force_default_embedding_model(mut self, force: bool) -> Self {
-        push_param(&mut self.arguments, "force-default-embedding-model", &Value::Bool(force));
+        push_param(&mut self.arguments, "force-default-embedding-model", force);
         self
     }
 
     pub fn log_level(mut self, level: &str) -> Self {
-        push_param(&mut self.arguments, "log-level", &Value::String(level.to_string()));
+        push_param(&mut self.arguments, "log-level", level);
         self
     }
 
     pub fn quantization(mut self, quant: &str) -> Self {
-        push_param(&mut self.arguments, "quantization", &Value::String(quant.to_string()));
+        push_param(&mut self.arguments, "quantization", quant);
         self
     }
 
     pub fn trust_remote_code(mut self, trust: bool) -> Self {
-        push_param(&mut self.arguments, "trust-remote-code", &Value::Bool(trust));
+        push_param(&mut self.arguments, "trust-remote-code", trust);
         self
     }
 
     pub fn attn_implementation(mut self, implementation: &str) -> Self {
-        push_param(&mut self.arguments, "attn-implementation", &Value::String(implementation.to_string()));
+        push_param(&mut self.arguments, "attn-implementation", implementation);
         self
     }
 
     pub fn enable_cors(mut self, enable: bool) -> Self {
-        push_param(&mut self.arguments, "enable-cors", &Value::Bool(enable));
+        push_param(&mut self.arguments, "enable-cors", enable);
         self
     }
 
     pub fn non_blocking(mut self, non_blocking: bool) -> Self {
-        push_param(&mut self.arguments, "non-blocking", &Value::Bool(non_blocking));
+        push_param(&mut self.arguments, "non-blocking", non_blocking);
         self
     }
 
@@ -271,7 +272,7 @@ impl BackendParameterSetBuilder for VLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        HPCParameterSet::default()
+        todo!("HPC deployment is not yet implemented")
     }
 }
 
@@ -285,22 +286,22 @@ impl VLlmParameterSetBuilder {
     }
 
     pub fn tensor_parallel_size(mut self, size: u32) -> Self {
-        push_param(&mut self.arguments, "tensor_parallel_size", &Value::Number(serde_json::Number::from(size as u64)));
+        push_param(&mut self.arguments, "tensor_parallel_size", size);
         self
     }
 
     pub fn pipeline_parallel_size(mut self, size: u32) -> Self {
-        push_param(&mut self.arguments, "pipeline_parallel_size", &Value::Number(serde_json::Number::from(size as u64)));
+        push_param(&mut self.arguments, "pipeline_parallel_size", size);
         self
     }
 
     pub fn max_model_len(mut self, len: u32) -> Self {
-        push_param(&mut self.arguments, "max_model_len", &Value::Number(serde_json::Number::from(len as u64)));
+        push_param(&mut self.arguments, "max_model_len", len);
         self
     }
 
     pub fn gpu_memory_utilization(mut self, util: f32) -> Self {
-        push_param(&mut self.arguments, "gpu_memory_utilization", &Value::Number(serde_json::Number::from_f64(util as f64).unwrap()));
+        push_param(&mut self.arguments, "gpu_memory_utilization", util);
         self
     }
 
@@ -329,7 +330,7 @@ impl BackendParameterSetBuilder for SGLangParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        HPCParameterSet::default()
+        todo!("HPC deployment is not yet implemented")
     }
 }
 
@@ -343,12 +344,12 @@ impl SGLangParameterSetBuilder {
     }
 
     pub fn tp_size(mut self, size: u32) -> Self {
-        push_param(&mut self.arguments, "tp_size", &Value::Number(serde_json::Number::from(size as u64)));
+        push_param(&mut self.arguments, "tp_size", size);
         self
     }
 
     pub fn mem_fraction_static(mut self, fraction: f32) -> Self {
-        push_param(&mut self.arguments, "mem_fraction_static", &Value::Number(serde_json::Number::from_f64(fraction as f64).unwrap()));
+        push_param(&mut self.arguments, "mem_fraction_static", fraction);
         self
     }
 
@@ -377,7 +378,7 @@ impl BackendParameterSetBuilder for TrtLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        HPCParameterSet::default()
+        todo!("HPC deployment is not yet implemented")
     }
 }
 
@@ -391,12 +392,12 @@ impl TrtLlmParameterSetBuilder {
     }
 
     pub fn max_batch_size(mut self, size: u32) -> Self {
-        push_param(&mut self.arguments, "max_batch_size", &Value::Number(serde_json::Number::from(size as u64)));
+        push_param(&mut self.arguments, "max_batch_size", size);
         self
     }
 
     pub fn max_input_len(mut self, len: u32) -> Self {
-        push_param(&mut self.arguments, "max_input_len", &Value::Number(serde_json::Number::from(len as u64)));
+        push_param(&mut self.arguments, "max_input_len", len);
         self
     }
 
@@ -509,12 +510,10 @@ mod tests {
 
     #[test]
     fn test_command_accessor() {
-        // User's command (appended after default startup) is preserved.
         let backend = Backend::Transformers {
             command: vec!["python".to_string(), "serve.py".to_string()],
         };
-        let cmd = backend.command();
-        assert_eq!(cmd, &["python", "serve.py"]);
+        assert_eq!(backend.command(), &["python", "serve.py"]);
     }
 
     #[test]
@@ -552,7 +551,6 @@ mod tests {
 
         let builder = backend.parameter_set_builder();
         let pod_params = builder.build_params_for_pod(&server);
-        let _hpc_params = builder.build_params_for_hpc(&server);
 
         assert!(pod_params.command.is_some());
         assert!(pod_params.arguments.is_some());
