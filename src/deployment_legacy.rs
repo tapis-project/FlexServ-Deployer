@@ -360,8 +360,7 @@ impl FlexServPodDeployment {
             .flexserv_secret
             .clone()
             .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
-        let flexserv_token = (!flexserv_secret.is_empty())
-            .then(|| format!("{}{}", flexserv_secret, model_dir_name));
+        let flexserv_token = format!("{}{}", flexserv_secret, model_dir_name);
 
         // Pod downloads the model from Hugging Face to /app/models/<model_dir_name> at startup, then starts the server.
         let skip_model_download = self.server.default_model.is_empty()
@@ -387,43 +386,35 @@ impl FlexServPodDeployment {
 
         // Startup script: download model (if MODEL_ID set) then start server.
         // Use shell error handling (set -e) and logging so failures are visible.
-        let startup_script = {
-            let base = concat!(
-                "set -e; ",
-                "echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; ",
-                "if [ -n \"$MODEL_ID\" ]; then ",
-                "  echo 'Downloading model...'; ",
-                "  /app/venvs/transformers/bin/python -c \"",
-                "import os; from huggingface_hub import snapshot_download; ",
-                "snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', ",
-                "local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), ",
-                "token=os.environ.get('HF_TOKEN') or None)",
-                "\"; ",
-                "  echo 'Model download complete'; ",
-                "fi; ",
-                "echo 'Starting FlexServ server...'; ",
-                "exec /app/venvs/transformers/bin/python /app/flexserv/python/backend/transformers/backend_server.py \"$MODEL_REPO/$MODEL_NAME\" --host 0.0.0.0 --port 8000"
-            );
-            match &flexserv_token {
-                Some(token) => format!("{} --flexserv-token \"{}\"", base, token),
-                None => base.to_string(),
-            }
-        };
+        let startup_script = concat!(
+            "set -e; ",
+            "echo 'FlexServ startup: MODEL_ID='\"$MODEL_ID\"' MODEL_REPO='\"$MODEL_REPO\"' MODEL_NAME='\"$MODEL_NAME\"; ",
+            "if [ -n \"$MODEL_ID\" ]; then ",
+            "  echo 'Downloading model...'; ",
+            "  /app/venvs/transformers/bin/python -c \"",
+            "import os; from huggingface_hub import snapshot_download; ",
+            "snapshot_download(repo_id=os.environ['MODEL_ID'], revision=os.environ.get('MODEL_REVISION') or 'main', ",
+            "local_dir=os.path.join(os.environ.get('MODEL_REPO', '/app/models'), os.environ.get('MODEL_NAME', '')), ",
+            "token=os.environ.get('HF_TOKEN') or None)",
+            "\"; ",
+            "  echo 'Model download complete'; ",
+            "fi; ",
+            "echo 'Starting FlexServ server...'; ",
+            "exec /app/venvs/transformers/bin/python /app/flexserv/python/backend/transformers/backend_server.py \"$MODEL_REPO/$MODEL_NAME\" --host 0.0.0.0 --port 8000 --flexserv-token \"$FLEXSERV_TOKEN\""
+        );
 
         let mut env_vars: std::collections::HashMap<String, serde_json::Value> = [
             ("MODEL_REPO", serde_json::json!(MODEL_REPO_PATH)),
             ("FLEXSERV_PORT", serde_json::json!("8000")),
             ("MODEL_NAME", serde_json::json!(model_dir_name)),
+            ("FLEXSERV_SECRET", serde_json::json!(flexserv_secret)),
+            ("FLEXSERV_TOKEN", serde_json::json!(flexserv_token)),
             ("MODEL_ID", serde_json::json!(model_id_for_pod)),
             ("MODEL_REVISION", serde_json::json!(model_revision)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
-        if let Some(ref token) = flexserv_token {
-            env_vars.insert("FLEXSERV_SECRET".to_string(), serde_json::json!(flexserv_secret));
-            env_vars.insert("FLEXSERV_TOKEN".to_string(), serde_json::json!(token));
-        }
         if let Some(ref t) = hf_token {
             env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
         }

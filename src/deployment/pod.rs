@@ -268,14 +268,12 @@ impl FlexServDeployment for FlexServPodDeployment {
         mount.source_id = Some(Some(self.volume_id.clone()));
         mount.sub_path = Some(String::new());
         volume_mounts.insert(MODEL_REPO_PATH.to_string(), mount);
-        // FlexServ token: secret + MODEL_NAME (only when a secret is configured).
         let flexserv_secret = self
             .options
             .flexserv_secret
             .clone()
             .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
-        let flexserv_token = (!flexserv_secret.is_empty())
-            .then(|| format!("{}{}", flexserv_secret, model_dir_name));
+        let flexserv_token = format!("{}{}", flexserv_secret, model_dir_name);
 
         let hf_token = self
             .server
@@ -293,10 +291,8 @@ impl FlexServDeployment for FlexServPodDeployment {
         let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
         let mut arguments = pod_params.arguments.unwrap_or_default();
         arguments.insert(0, model_path);
-        if let Some(ref token) = flexserv_token {
-            arguments.push("--flexserv-token".to_string());
-            arguments.push(token.clone());
-        }
+        arguments.push("--flexserv-token".to_string());
+        arguments.push(flexserv_token.clone());
 
         let mut env_vars: std::collections::HashMap<String, serde_json::Value> =
             pod_params
@@ -305,10 +301,8 @@ impl FlexServDeployment for FlexServPodDeployment {
         env_vars.insert("MODEL_REPO".to_string(), serde_json::json!(MODEL_REPO_PATH));
         env_vars.insert("FLEXSERV_PORT".to_string(), serde_json::json!("8000"));
         env_vars.insert("MODEL_NAME".to_string(), serde_json::json!(model_dir_name));
-        if let Some(ref token) = flexserv_token {
-            env_vars.insert("FLEXSERV_SECRET".to_string(), serde_json::json!(flexserv_secret));
-            env_vars.insert("FLEXSERV_TOKEN".to_string(), serde_json::json!(token));
-        }
+        env_vars.insert("FLEXSERV_SECRET".to_string(), serde_json::json!(flexserv_secret));
+        env_vars.insert("FLEXSERV_TOKEN".to_string(), serde_json::json!(flexserv_token));
         if let Some(ref t) = hf_token {
             env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
         }
