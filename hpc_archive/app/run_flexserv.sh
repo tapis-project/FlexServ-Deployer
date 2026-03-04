@@ -252,7 +252,7 @@ export APPTAINER_IMAGE="${APPTAINER_IMAGE:-/work/projects/aci/cic/apps/flexserv/
 mkdir -p "${PUB_MODEL_HOST}"
 mkdir -p "${PRI_MODEL_HOST}"
 
-chmod 755 ${PUB_MODEL_HOST}
+# chmod 755 ${PUB_MODEL_HOST}
 
 echo "Public model repository (host): ${PUB_MODEL_HOST}"
 echo "Private model repository (host): ${PRI_MODEL_HOST}"
