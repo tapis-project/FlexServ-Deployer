@@ -7,16 +7,21 @@ set -e
 # Parse arguments (supports both named args in any order and legacy positional args)
 print_usage() {
     echo "Usage (named, order-independent):"
-    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--enable-https]"
+    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--device <device>] [--dtype <dtype>] [--attn-implementation <impl>] [--model-timeout <seconds>] [--quantization <mode>] [--enable-https]"
     echo "  $0 --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
-    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https]"
+    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https] [quantization]"
     echo ""
     echo "Arguments:"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
     echo "  secret / --secret               FlexServ auth secret (default: flexserv)"
     echo "  model_name / --model-name       Default model name/path (default: Qwen/Qwen3-0.6B)"
+    echo "  device / --device               Backend device (default: auto)"
+    echo "  dtype / --dtype                 Backend dtype (default: bfloat16)"
+    echo "  attn / --attn-implementation    Attention implementation (default: sdpa)"
+    echo "  model_timeout / --model-timeout Backend model timeout seconds (default: 86400)"
+    echo "  quantization / --quantization   Quantization mode for backend (default: none)"
     echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
     echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
     echo "  enable_https / --enable-https   Whether to enable HTTPS (default: disabled)"
@@ -33,6 +38,11 @@ MODEL_NAME="Qwen/Qwen3-0.6B"
 LOGIN_PORT=""
 IS_DISTRIBUTED=0
 ENABLE_HTTPS=0
+DEVICE="${FLEXSERV_DEVICE:-auto}"
+DTYPE="${FLEXSERV_DTYPE:-bfloat16}"
+ATTN_IMPLEMENTATION="${FLEXSERV_ATTN_IMPL:-sdpa}"
+MODEL_TIMEOUT="${FLEXSERV_MODEL_TIMEOUT:-86400}"
+QUANTIZATION="${FLEXSERV_QUANTIZATION:-none}"
 if [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -64,9 +74,29 @@ if [[ "$1" == -* ]]; then
                 MODEL_NAME="$2"
                 shift 2
             ;;
+            --device)
+                DEVICE="$2"
+                shift 2
+            ;;
+            --dtype)
+                DTYPE="$2"
+                shift 2
+            ;;
+            --attn-implementation)
+                ATTN_IMPLEMENTATION="$2"
+                shift 2
+            ;;
+            --model-timeout)
+                MODEL_TIMEOUT="$2"
+                shift 2
+            ;;
             --enable-https)
                 ENABLE_HTTPS=1
                 shift
+            ;;
+            --quantization)
+                QUANTIZATION="$2"
+                shift 2
             ;;
             -h|--help)
                 print_usage
@@ -80,7 +110,7 @@ if [[ "$1" == -* ]]; then
         esac
     done
 else
-    if [ "$#" -lt 1 ] || [ "$#" -gt 6 ]; then
+    if [ "$#" -lt 1 ] || [ "$#" -gt 7 ]; then
         print_usage
         exit 1
     fi
@@ -91,9 +121,10 @@ else
     LOGIN_PORT=$4
     IS_DISTRIBUTED=${5:-0}
     ENABLE_HTTPS=${6:-0}
+    QUANTIZATION=${7:-${QUANTIZATION}}
 fi
 
-HUGGINGFACE_TOKEN=${HF_TOKEN:-""}
+HUGGINGFACE_TOKEN=${HF_TOKEN:-${HUGGINGFACE_TOKEN:-""}}
 
 GPU_COUNT=0
 
@@ -118,8 +149,7 @@ else
     unset CUDA_VISIBLE_DEVICES || true
 fi
 
-# Temporarily disable distributed mode:
-
+# FIXME: Temporarily disable distributed mode. We need to try to support distributed in the future.
 IS_DISTRIBUTED=0
 
 echo "======================================================================"
@@ -129,7 +159,7 @@ echo "FlexServ Port: ${FLEXSERV_PORT}"
 echo "Compute Node: $(hostname)"
 echo "======================================================================"
 
-export APPTAINER_CACHEDIR=$WORK/cache/apptainer
+export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-/work/projects/aci/cic/apps/flexserv}
 mkdir -p $APPTAINER_CACHEDIR
 
 # 1. Load TACC Apptainer module
@@ -192,7 +222,7 @@ if [ -z "${TAP_TOKEN}" ]; then
     exit 1
 fi
 
-FLEXSERV_SECRET=${FLEXSERV_SECRET:-${TAP_TOKEN}}
+FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${TAP_TOKEN}}}
 
 # This is the remote port users will hit (on login nodes)
 export LOGIN_PORT=${LOGIN_PORT:-"$(tap_get_port)"}
@@ -200,23 +230,39 @@ echo "FlexServ login-node port: ${LOGIN_PORT}"
 
 
 export LOCAL_PORT="${FLEXSERV_PORT}"
+export GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT:-$((FLEXSERV_PORT + 1))}
+
+if [ "${GATEWAY_BACKEND_PORT}" -eq "${FLEXSERV_PORT}" ] || netstat -tuln 2>/dev/null | grep -q ":${GATEWAY_BACKEND_PORT} "; then
+    ALT_BACKEND_PORT=$(find_available_port)
+    if [ -n "${ALT_BACKEND_PORT}" ]; then
+        GATEWAY_BACKEND_PORT="${ALT_BACKEND_PORT}"
+    fi
+fi
+
+echo "Gateway backend port on compute node: ${GATEWAY_BACKEND_PORT}"
 
 ############## TAP environment set up complete ##############
 
 # 3. Set up environment variables
-export MODEL_REPO=${MODEL_REPO:-"${SCRATCH}/flexserv/models"}
-export HF_HOME=${HF_HOME:-"${SCRATCH}/flexserv/hf_cache"}
-export HUGGINGFACE_HUB_CACHE=${HF_HOME}/hub
-# export APPTAINER_IMAGE="${SCRATCH}/flexserv/flexserv_latest.sif"
-export APPTAINER_IMAGE="docker://zhangwei217245/flexserv-transformers:1.3.0"
+export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/models"}
+export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${SCRATCH}/flexserv/models"}
+export APPTAINER_IMAGE="${APPTAINER_IMAGE:-/work/projects/aci/cic/apps/flexserv/flexserv_latest.sif}"
 
 # Create models directory if it doesn't exist
-mkdir -p "${MODEL_REPO}"
-mkdir -p "${HUGGINGFACE_HUB_CACHE}"
+mkdir -p "${PUB_MODEL_HOST}"
+mkdir -p "${PRI_MODEL_HOST}"
 
-echo "Model repository: ${MODEL_REPO}"
+chmod 755 ${PUB_MODEL_HOST}
+
+echo "Public model repository (host): ${PUB_MODEL_HOST}"
+echo "Private model repository (host): ${PRI_MODEL_HOST}"
 echo "Apptainer image: ${APPTAINER_IMAGE}"
 echo "Default model name: ${MODEL_NAME}"
+echo "Device: ${DEVICE}"
+echo "DType: ${DTYPE}"
+echo "Attention implementation: ${ATTN_IMPLEMENTATION}"
+echo "Model timeout: ${MODEL_TIMEOUT}"
+echo "Quantization: ${QUANTIZATION}"
 
 # 4. Set up reverse port forwarding to login node
 echo ""
@@ -242,6 +288,10 @@ HPC_HOST="${NODE_HOSTNAME_DOMAIN}"
 protocol="http"
 if [ "$ENABLE_HTTPS" -ne 0 ]; then
     protocol="https"
+    export GATEWAY_TLS_CERT="${TAP_CERTFILE}"
+    export GATEWAY_TLS_KEY="${TAP_KEYFILE:-${TAP_CERTFILE}}"
+    echo "Gateway TLS cert: ${GATEWAY_TLS_CERT}"
+    echo "Gateway TLS key:  ${GATEWAY_TLS_KEY}"
 fi
 
 echo ""
@@ -327,13 +377,18 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     --ntasks-per-node=1 \
     --cpus-per-task=${SLURM_CPUS_PER_TASK:-8} \
     apptainer run --nv \
-    --bind ${MODEL_REPO}:/app/models:ro \
-    --bind ${HF_HOME}:/root/.cache/huggingface \
+    --bind ${PUB_MODEL_HOST}:/app/models/public:rw \
+    --bind ${PRI_MODEL_HOST}:/app/models/private:rw \
+    --env FLEXSERV_VENV=/app/venvs/flexserv \
+    --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
+    --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
+    --env PUB_MODEL_REPO=/app/models/public \
+    --env PRI_MODEL_REPO=/app/models/private \
     --env MASTER_ADDR=${MASTER_ADDR} \
     --env MASTER_PORT=${MASTER_PORT} \
     --env HF_TOKEN=${HUGGINGFACE_TOKEN} \
     ${APPTAINER_IMAGE} \
-    /app/venvs/transformers/bin/accelerate launch \
+    /app/venvs/flexserv/bin/accelerate launch \
     --multi_gpu \
     --num_machines=${SLURM_NNODES} \
     --num_processes=${WORLD_SIZE} \
@@ -342,24 +397,49 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     --main_process_port=${MASTER_PORT} \
     --same_network \
     --mixed_precision=bf16 \
-    /app/flexserv/python/backend/transformers/backend_server.py \
+    /app/flexserv/backend/hf_transformers_backend/backend_server.py \
     ${MODEL_NAME} \
     --host 0.0.0.0 \
     --port ${FLEXSERV_PORT} \
-    --flexserv-token ${FLEXSERV_SECRET}
+    --flexserv-token ${FLEXSERV_SECRET} \
+    --device ${DEVICE} \
+    --dtype ${DTYPE} \
+    --attn-implementation ${ATTN_IMPLEMENTATION} \
+    --model-timeout ${MODEL_TIMEOUT} \
+    --quantization ${QUANTIZATION}
 else
     echo "Launching FlexServ container in SINGLE-NODE mode..."
+    APPTAINER_GATEWAY_TLS_ENVS=()
+    if [ "$ENABLE_HTTPS" -ne 0 ]; then
+        APPTAINER_GATEWAY_TLS_ENVS+=(--env GATEWAY_TLS_CERT=${GATEWAY_TLS_CERT})
+        APPTAINER_GATEWAY_TLS_ENVS+=(--env GATEWAY_TLS_KEY=${GATEWAY_TLS_KEY})
+    fi
+    
     apptainer run --nv \
-    --bind ${MODEL_REPO}:/app/models:rw \
-    --bind ${HF_HOME}:/root/.cache/huggingface \
+    --bind ${PUB_MODEL_HOST}:/app/models/public:rw \
+    --bind ${PRI_MODEL_HOST}:/app/models/private:rw \
+    --env FLEXSERV_VENV=/app/venvs/flexserv \
+    --env ENABLE_GATEWAY=${ENABLE_GATEWAY:-true} \
+    --env PUB_MODEL_REPO=/app/models/public \
+    --env PRI_MODEL_REPO=/app/models/private \
+    --env GATEWAY_PORT=${FLEXSERV_PORT} \
+    --env GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT} \
+    --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
+    --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
     --env HF_TOKEN=${HUGGINGFACE_TOKEN} \
+    --env TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache \
+    "${APPTAINER_GATEWAY_TLS_ENVS[@]}" \
     ${APPTAINER_IMAGE} \
     /app/boot_loader.sh \
     --default-model ${MODEL_NAME} \
     --host 0.0.0.0 \
     --port ${FLEXSERV_PORT} \
     --flexserv-token ${FLEXSERV_SECRET} \
-    --attn-implementation ${FLEXSERV_ATTN_IMPL:-sdpa}
+    --device ${DEVICE} \
+    --dtype ${DTYPE} \
+    --model-timeout ${MODEL_TIMEOUT} \
+    --quantization ${QUANTIZATION} \
+    --attn-implementation ${ATTN_IMPLEMENTATION}
 fi
 # If we reach here, container exited normally
 echo "FlexServ container stopped"
