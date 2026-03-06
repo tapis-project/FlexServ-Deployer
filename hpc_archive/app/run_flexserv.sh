@@ -370,6 +370,10 @@ fi
 export VENV_PATH=${VENV_PATH:-$WORK/venvs}
 echo "VENV_PATH=${VENV_PATH}"
 
+export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flexserv/patches/backend}
+export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-/work/projects/aci/cic/apps/flexserv/patches/gateway}
+export APPLY_PATCH=${APPLY_PATCH:-0}
+
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     echo "Launching FlexServ container in DISTRIBUTED mode..."
@@ -415,9 +419,18 @@ else
         APPTAINER_GATEWAY_TLS_ENVS+=(--env GATEWAY_TLS_KEY=${GATEWAY_TLS_KEY})
     fi
     
+    APPTAINER_PATCH_BINDS=()
+    if [ "$APPLY_PATCH" -ne 0 ]; then
+        echo "Applying backend patches from ${BACKEND_PATCH_PATH}..."
+        echo "Applying landing page patches from ${LANDING_PAGE_PATH}..."
+        APPTAINER_PATCH_BINDS+=(--bind ${BACKEND_PATCH_PATH}:/app/flexserv/backend:ro)
+        APPTAINER_PATCH_BINDS+=(--bind ${LANDING_PAGE_PATH}:/app/flexserv/gateway:ro)
+    fi
+    
     apptainer run --nv \
     --bind ${PUB_MODEL_HOST}:/app/models/public:rw \
     --bind ${PRI_MODEL_HOST}:/app/models/private:rw \
+    "${APPTAINER_PATCH_BINDS[@]}" \
     --env FLEXSERV_VENV=/app/venvs/flexserv \
     --env ENABLE_GATEWAY=${ENABLE_GATEWAY:-true} \
     --env PUB_MODEL_REPO=/app/models/public \
