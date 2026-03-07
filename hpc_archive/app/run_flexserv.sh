@@ -253,12 +253,11 @@ echo "Gateway backend port on compute node: ${GATEWAY_BACKEND_PORT}"
 ############## TAP environment set up complete ##############
 
 # 3. Set up environment variables
-export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/models"}
+export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/apps/flexserv/models"}
 export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${SCRATCH}/flexserv/models"}
 export APPTAINER_IMAGE="${APPTAINER_IMAGE:-/work/projects/aci/cic/apps/flexserv/flexserv_latest.sif}"
 
 # Create models directory if it doesn't exist
-mkdir -p "${PUB_MODEL_HOST}"
 mkdir -p "${PRI_MODEL_HOST}"
 
 # chmod 755 ${PUB_MODEL_HOST}
