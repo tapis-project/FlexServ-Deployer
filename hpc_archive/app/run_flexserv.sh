@@ -223,6 +223,15 @@ if [ -z "${TAP_TOKEN}" ]; then
 fi
 
 FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${TAP_TOKEN}}}
+if [ -z "${FLEXSERV_OWNER:-}" ]; then
+    if owner="$(whoami 2>/dev/null)" && [ -n "${owner}" ]; then
+        export FLEXSERV_OWNER="${owner}"
+        elif [ -n "${USER:-}" ]; then
+        export FLEXSERV_OWNER="${USER}"
+    else
+        export FLEXSERV_OWNER="$(id -u 2>/dev/null || echo unknown)"
+    fi
+fi
 
 # This is the remote port users will hit (on login nodes)
 export LOGIN_PORT=${LOGIN_PORT:-"$(tap_get_port)"}
@@ -263,6 +272,8 @@ echo "DType: ${DTYPE}"
 echo "Attention implementation: ${ATTN_IMPLEMENTATION}"
 echo "Model timeout: ${MODEL_TIMEOUT}"
 echo "Quantization: ${QUANTIZATION}"
+echo "FlexServ owner: ${FLEXSERV_OWNER}"
+echo "FlexServ token: ${FLEXSERV_SECRET}"
 
 # 4. Set up reverse port forwarding to login node
 echo ""
@@ -386,6 +397,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     --env FLEXSERV_VENV=/app/venvs/flexserv \
     --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
     --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
+    --env FLEXSERV_OWNER=${FLEXSERV_OWNER} \
     --env PUB_MODEL_REPO=/app/models/public \
     --env PRI_MODEL_REPO=/app/models/private \
     --env MASTER_ADDR=${MASTER_ADDR} \
@@ -439,6 +451,7 @@ else
     --env GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT} \
     --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
     --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
+    --env FLEXSERV_OWNER=${FLEXSERV_OWNER} \
     --env HF_TOKEN=${HUGGINGFACE_TOKEN} \
     --env TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache \
     "${APPTAINER_GATEWAY_TLS_ENVS[@]}" \
