@@ -252,10 +252,50 @@ echo "Gateway backend port on compute node: ${GATEWAY_BACKEND_PORT}"
 
 ############## TAP environment set up complete ##############
 
+
 # 3. Set up environment variables
 export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/apps/flexserv/models"}
 export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${SCRATCH}/flexserv/models"}
-export APPTAINER_IMAGE="${APPTAINER_IMAGE:-/work/projects/aci/cic/apps/flexserv/flexserv_latest.sif}"
+
+RAW_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+if [ -n "${FLEXSERV_ARCH_CODE:-}" ]; then
+    case "${FLEXSERV_ARCH_CODE}" in
+        amd64|arm64)
+            ARCH_CODE="${FLEXSERV_ARCH_CODE}"
+            echo "WARNING: Overriding detected architecture '${RAW_ARCH}' with FLEXSERV_ARCH_CODE='${ARCH_CODE}'."
+        ;;
+        *)
+            echo "ERROR: Invalid FLEXSERV_ARCH_CODE='${FLEXSERV_ARCH_CODE}'. Allowed values: amd64, arm64."
+            exit 1
+        ;;
+    esac
+else
+    case "${RAW_ARCH}" in
+        x86_64|amd64)
+            ARCH_CODE="amd64"
+        ;;
+        aarch64|arm64)
+            ARCH_CODE="arm64"
+        ;;
+        armv8*|armv9*)
+            ARCH_CODE="arm64"
+            echo "WARNING: Architecture '${RAW_ARCH}' mapped to 'arm64'. Verify your userland/container compatibility."
+        ;;
+        armv7*|armv6*|armhf|armel|i386|i686|x86|ppc*|s390*|riscv*|mips*)
+            echo "WARNING: Incompatible architecture '${RAW_ARCH}' for supported images (amd64, arm64)."
+            echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 only if you intentionally want to override."
+            exit 1
+        ;;
+        *)
+            echo "WARNING: Unrecognized architecture '${RAW_ARCH}'. Automatic fallback is disabled to prevent wrong-image startup."
+            echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 to override explicitly."
+            exit 1
+        ;;
+    esac
+fi
+
+APPTAINER_IMAGE_DEFAULT="/work/projects/aci/cic/apps/flexserv/flexserv_${ARCH_CODE}_latest.sif"
+export APPTAINER_IMAGE="${APPTAINER_IMAGE:-${APPTAINER_IMAGE_DEFAULT}}"
 
 # Create models directory if it doesn't exist
 mkdir -p "${PRI_MODEL_HOST}"
@@ -264,6 +304,7 @@ mkdir -p "${PRI_MODEL_HOST}"
 
 echo "Public model repository (host): ${PUB_MODEL_HOST}"
 echo "Private model repository (host): ${PRI_MODEL_HOST}"
+echo "Detected architecture: ${RAW_ARCH} (image arch code: ${ARCH_CODE})"
 echo "Apptainer image: ${APPTAINER_IMAGE}"
 echo "Default model name: ${MODEL_NAME}"
 echo "Device: ${DEVICE}"
