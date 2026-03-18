@@ -2,9 +2,9 @@
     "name": "tap_flexserv_vista_test",
     "appId": "FlexServ",
     "appVersion": "1.4.0",
-    "execSystemId": "ls6",
+    "execSystemId": "vista-tapis-wzhang217",
     "tenant": "public",
-    "execSystemLogicalQueue": "gh",
+    "execSystemLogicalQueue": "gh-dev",
     "maxMinutes": 60,
     "parameterSet": {
         "appArgs": [
@@ -53,14 +53,6 @@
             {
                 "key": "PUB_MODEL_HOST",
                 "value": "/work/projects/aci/cic/apps/flexserv/models"
-            },
-            {
-                "key": "APPLY_PATCH",
-                "value": "0"
-            },
-            {
-                "key": "APPTAINER_IMAGE",
-                "value": "/work/projects/aci/cic/apps/flexserv/apptainer_images/amd64/zhangwei217245--flexserv-transformers--1.4.3.sif"
             }
         ],
         "schedulerOptions": [
