@@ -1,6 +1,6 @@
 {
     "name": "tap_flexserv_vista_test",
-    "appId": "FlexServ",
+    "appId": "FlexServ-1.4.0",
     "appVersion": "1.4.0",
     "execSystemId": "vista-tapis-wzhang217",
     "tenant": "public",
