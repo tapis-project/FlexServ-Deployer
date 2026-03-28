@@ -440,6 +440,17 @@ export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flex
 export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-/work/projects/aci/cic/apps/flexserv/patches/gateway}
 export APPLY_PATCH=${APPLY_PATCH:-0}
 
+BOOT_FLAGS=()
+
+if [[ "$TRUST_REMOTE_CODE" == "true" ]] || [[ "$TRUST_REMOTE_CODE" == "1" ]]; then
+    flag="--trust-remote-code"
+    BOOT_FLAGS+=("$flag")
+fi
+
+if [[ "$CONTINUOUS_BATCHING" == "true" ]] || [[ "$CONTINUOUS_BATCHING" == "1" ]]; then
+    flag="--continuous-batching"
+    BOOT_FLAGS+=("$flag")
+fi
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     echo "Launching FlexServ container in DISTRIBUTED mode..."
@@ -478,8 +489,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     --attn-implementation ${ATTN_IMPLEMENTATION} \
     --model-timeout ${MODEL_TIMEOUT} \
     --quantization ${QUANTIZATION} \
-    --trust-remote-code ${TRUST_REMOTE_CODE} \
-    --continuous-batching ${CONTINUOUS_BATCHING}
+    "${BOOT_FLAGS[@]}"
 else
     echo "Launching FlexServ container in SINGLE-NODE mode..."
     APPTAINER_GATEWAY_TLS_ENVS=()
@@ -523,8 +533,7 @@ else
     --model-timeout ${MODEL_TIMEOUT} \
     --quantization ${QUANTIZATION} \
     --attn-implementation ${ATTN_IMPLEMENTATION} \
-    --trust-remote-code ${TRUST_REMOTE_CODE} \
-    --continuous-batching ${CONTINUOUS_BATCHING}
+    "${BOOT_FLAGS[@]}"
 fi
 # If we reach here, container exited normally
 echo "FlexServ container stopped"
