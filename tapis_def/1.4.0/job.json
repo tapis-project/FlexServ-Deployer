@@ -41,6 +41,14 @@
                 "name": "quantization"
             },
             {
+                "arg": "--trust-remote-code false",
+                "name": "trustRemoteCode"
+            },
+            {
+                "arg": "--continuous-batching false",
+                "name": "continuousBatching"
+            },
+            {
                 "arg": "--is-distributed 0",
                 "name": "isDistributed"
             }

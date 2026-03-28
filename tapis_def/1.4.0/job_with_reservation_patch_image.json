@@ -41,6 +41,14 @@
                 "name": "quantization"
             },
             {
+                "arg": "--continuous-batching false",
+                "name": "continuousBatching"
+            },
+            {
+                "arg": "--is-distributed 0",
+                "name": "isDistributed"
+            },
+            {
                 "arg": "--is-distributed 0",
                 "name": "isDistributed"
             }
@@ -70,13 +78,10 @@
             },
             {
                 "name": "Reservation Name",
-                "arg": "--reservation GHTapis+Nairr_testing",
-                "description": "This is optional. Fill only if you have a reservation and want to use it for this job."
+                "arg": "--reservation GHTapis+Nairr_testing"
             },
             {
                 "name": "TACC Resource Allocation",
-                "description": "The TACC Allocation associated with this job execution",
-                "include": true,
                 "arg": "-A << allocation >>"
             }
         ]
