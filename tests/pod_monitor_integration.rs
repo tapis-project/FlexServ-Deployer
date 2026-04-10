@@ -10,7 +10,7 @@
 //! Optional: FLEXSERV_NO_MODEL=1 — use no-model config (for demos).
 
 use flexserv_deployer::{
-    Backend, DeploymentResult, FlexServDeployment, FlexServPodDeployment, FlexServInstance,
+    Backend, DeploymentResult, FlexServDeployment, FlexServInstance, FlexServPodDeployment,
 };
 
 fn env_or_skip() -> Option<(String, String)> {
@@ -97,7 +97,9 @@ async fn test_monitor_functionality() {
             d
         }
         None => {
-            eprintln!("Skipping: set POD_ID env var to test existing deployment (VOLUME_ID optional)");
+            eprintln!(
+                "Skipping: set POD_ID env var to test existing deployment (VOLUME_ID optional)"
+            );
             return;
         }
     };
@@ -114,23 +116,47 @@ async fn test_monitor_functionality() {
             model_id: _model_id,
             ..
         } => {
-            assert_eq!(pod_id, deployment.pod_id, "monitor() should return correct pod_id");
-            assert_eq!(volume_id, deployment.volume_id, "monitor() should return correct volume_id");
+            assert_eq!(
+                pod_id, deployment.pod_id,
+                "monitor() should return correct pod_id"
+            );
+            assert_eq!(
+                volume_id, deployment.volume_id,
+                "monitor() should return correct volume_id"
+            );
             assert_eq!(tapis_user, "testuser");
             assert!(!pod_info.is_empty(), "monitor() should return pod_info");
             if !deployment.volume_id.is_empty() {
-                assert!(!volume_info.is_empty(), "monitor() should return volume_info when volume_id set");
+                assert!(
+                    !volume_info.is_empty(),
+                    "monitor() should return volume_info when volume_id set"
+                );
             }
             let state = status_from_pod_info(&pod_info);
-            eprintln!("Monitor OK -> pod_id: {}, volume_id: {:?}, pod_url: {:?}", pod_id, if volume_id.is_empty() { "none" } else { &volume_id }, pod_url);
+            eprintln!(
+                "Monitor OK -> pod_id: {}, volume_id: {:?}, pod_url: {:?}",
+                pod_id,
+                if volume_id.is_empty() {
+                    "none"
+                } else {
+                    &volume_id
+                },
+                pod_url
+            );
             eprintln!("pod state: {}", state.unwrap_or("(unknown)"));
             if state.is_none() {
                 if let Some(idx) = pod_info.find("status: Some") {
-                    let snippet = pod_info.get(idx..(idx + 60).min(pod_info.len())).unwrap_or("");
+                    let snippet = pod_info
+                        .get(idx..(idx + 60).min(pod_info.len()))
+                        .unwrap_or("");
                     eprintln!("  (status snippet from pod_info: {:?})", snippet);
                 }
             }
-            eprintln!("pod_info length: {} chars, volume_info length: {} chars", pod_info.len(), volume_info.len());
+            eprintln!(
+                "pod_info length: {} chars, volume_info length: {} chars",
+                pod_info.len(),
+                volume_info.len()
+            );
         }
         _ => panic!("monitor() should return PodResult"),
     }
@@ -153,13 +179,18 @@ async fn test_monitor_repeated() {
             d
         }
         None => {
-            eprintln!("Skipping: set POD_ID env var to test existing deployment (VOLUME_ID optional)");
+            eprintln!(
+                "Skipping: set POD_ID env var to test existing deployment (VOLUME_ID optional)"
+            );
             return;
         }
     };
 
     // Monitor first time
-    let monitor1 = deployment.monitor().await.expect("first monitor should succeed");
+    let monitor1 = deployment
+        .monitor()
+        .await
+        .expect("first monitor should succeed");
     match monitor1 {
         DeploymentResult::PodResult { pod_id, .. } => {
             assert_eq!(pod_id, deployment.pod_id);
@@ -171,9 +202,14 @@ async fn test_monitor_repeated() {
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Monitor second time
-    let monitor2 = deployment.monitor().await.expect("second monitor should succeed");
+    let monitor2 = deployment
+        .monitor()
+        .await
+        .expect("second monitor should succeed");
     match monitor2 {
-        DeploymentResult::PodResult { pod_id, pod_url, .. } => {
+        DeploymentResult::PodResult {
+            pod_id, pod_url, ..
+        } => {
             assert_eq!(pod_id, deployment.pod_id);
             eprintln!("Second monitor OK -> pod_url: {:?}", pod_url);
         }

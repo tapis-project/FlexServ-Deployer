@@ -77,7 +77,10 @@ impl FlexServPodDeployment {
 
     /// Derive pod_id and volume_id from options.deployment_id (if set) or from server deployment_hash.
     /// deployment_id is normalized to lowercase alphanumeric (e.g. UUID with dashes stripped).
-    fn ids_from_options(server: &FlexServInstance, options: &PodDeploymentOptions) -> (String, String) {
+    fn ids_from_options(
+        server: &FlexServInstance,
+        options: &PodDeploymentOptions,
+    ) -> (String, String) {
         let suffix = if let Some(ref id) = options.deployment_id {
             let normalized = crate::utils::normalize_to_lowercase_alphanumeric(id);
             if normalized.is_empty() {
@@ -149,7 +152,8 @@ impl FlexServPodDeployment {
         let mut headers = HeaderMap::new();
         headers.insert(
             "X-Tapis-Token",
-            HeaderValue::from_str(&self.tapis_token).map_err(|e| DeploymentError::TapisAuthFailed(e.to_string()))?,
+            HeaderValue::from_str(&self.tapis_token)
+                .map_err(|e| DeploymentError::TapisAuthFailed(e.to_string()))?,
         );
         let client = reqwest::Client::builder()
             .default_headers(headers)
@@ -199,7 +203,6 @@ impl FlexServPodDeployment {
             }
         }
     }
-
 }
 
 impl FlexServDeployment for FlexServPodDeployment {
@@ -236,8 +239,13 @@ impl FlexServDeployment for FlexServPodDeployment {
             Err(e) => {
                 // If volume already exists, try deleting and recreating
                 if let apis::Error::ResponseError(ref resp) = e {
-                    if resp.content.contains("already exists") || resp.content.contains("UniqueViolation") {
-                        log::warn!("Volume {} already exists, deleting and retrying...", self.volume_id);
+                    if resp.content.contains("already exists")
+                        || resp.content.contains("UniqueViolation")
+                    {
+                        log::warn!(
+                            "Volume {} already exists, deleting and retrying...",
+                            self.volume_id
+                        );
                         let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         volumes_api::create_volume(&config, new_volume)
@@ -264,7 +272,8 @@ impl FlexServDeployment for FlexServPodDeployment {
         // volume_mounts: key = mount path, value = VolumeMountsValue (type, source_id, sub_path).
         const MODEL_REPO_PATH: &str = "/app/models";
         let mut volume_mounts = std::collections::HashMap::new();
-        let mut mount = models::VolumeMountsValue::new(models::volume_mounts_value::Type::Tapisvolume);
+        let mut mount =
+            models::VolumeMountsValue::new(models::volume_mounts_value::Type::Tapisvolume);
         mount.source_id = Some(Some(self.volume_id.clone()));
         mount.sub_path = Some(String::new());
         volume_mounts.insert(MODEL_REPO_PATH.to_string(), mount);
@@ -295,14 +304,18 @@ impl FlexServDeployment for FlexServPodDeployment {
         arguments.push(flexserv_token.clone());
 
         let mut env_vars: std::collections::HashMap<String, serde_json::Value> =
-            pod_params
-                .environment_variables
-                .unwrap_or_default();
+            pod_params.environment_variables.unwrap_or_default();
         env_vars.insert("MODEL_REPO".to_string(), serde_json::json!(MODEL_REPO_PATH));
         env_vars.insert("FLEXSERV_PORT".to_string(), serde_json::json!("8000"));
         env_vars.insert("MODEL_NAME".to_string(), serde_json::json!(model_dir_name));
-        env_vars.insert("FLEXSERV_SECRET".to_string(), serde_json::json!(flexserv_secret));
-        env_vars.insert("FLEXSERV_TOKEN".to_string(), serde_json::json!(flexserv_token));
+        env_vars.insert(
+            "FLEXSERV_SECRET".to_string(),
+            serde_json::json!(flexserv_secret),
+        );
+        env_vars.insert(
+            "FLEXSERV_TOKEN".to_string(),
+            serde_json::json!(flexserv_token),
+        );
         if let Some(ref t) = hf_token {
             env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
         }
@@ -345,7 +358,10 @@ impl FlexServDeployment for FlexServPodDeployment {
         let pod_resp = match pods_api::create_pod(&config, new_pod).await {
             Ok(resp) => resp,
             Err(e) => {
-                log::error!("Pod creation failed, cleaning up volume {}...", self.volume_id);
+                log::error!(
+                    "Pod creation failed, cleaning up volume {}...",
+                    self.volume_id
+                );
                 let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
                 return Err(Self::_map_pods_error(e));
             }
@@ -446,11 +462,17 @@ impl FlexServDeployment for FlexServPodDeployment {
         let vol_info = if self.volume_id.is_empty() {
             "no volume".to_string()
         } else {
-            vol_resp.as_ref().map(|r| format!("{:#?}", r)).unwrap_or_else(|| "deleted".to_string())
+            vol_resp
+                .as_ref()
+                .map(|r| format!("{:#?}", r))
+                .unwrap_or_else(|| "deleted".to_string())
         };
         let combined_info = format!(
             "pod: {:#?}\nvolume: {}",
-            pod_resp.as_ref().map(|r| format!("{:#?}", r)).unwrap_or_else(|| "deleted".to_string()),
+            pod_resp
+                .as_ref()
+                .map(|r| format!("{:#?}", r))
+                .unwrap_or_else(|| "deleted".to_string()),
             vol_info
         );
 
@@ -507,7 +529,8 @@ mod tests {
     use crate::server::{FlexServInstance, ModelConfig, TapisConfig};
 
     fn is_lowercase_alphanumeric(s: &str) -> bool {
-        s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
     }
 
     #[test]
@@ -519,9 +542,7 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
 
         let deployment = FlexServPodDeployment::new(server, "dummy-token".to_string());
@@ -537,9 +558,7 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
         let options = PodDeploymentOptions {
             volume_size_mb: Some(20 * 1024),
@@ -551,9 +570,15 @@ mod tests {
         let deployment = FlexServPodDeployment::with_options(server, "token".to_string(), options);
         assert_eq!(deployment.server.tapis_user, "myuser");
         assert_eq!(deployment.options.volume_size_mb, Some(20 * 1024));
-        assert_eq!(deployment.options.image.as_deref(), Some("myregistry/flexserv:2.0"));
+        assert_eq!(
+            deployment.options.image.as_deref(),
+            Some("myregistry/flexserv:2.0")
+        );
         assert_eq!(deployment.options.cpu_request, Some(2000));
-        assert_eq!(deployment.options.flexserv_secret.as_deref(), Some("mysecret"));
+        assert_eq!(
+            deployment.options.flexserv_secret.as_deref(),
+            Some("mysecret")
+        );
     }
 
     #[test]
@@ -572,9 +597,7 @@ mod tests {
         let deployment = FlexServPodDeployment::from_configs(
             tapis,
             model,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
             PodDeploymentOptions::default(),
         );
         assert_eq!(deployment.server.tapis_user, "u");
@@ -590,9 +613,7 @@ mod tests {
             "token".to_string(),
             "openai-community/gpt2".to_string(),
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         )
         .unwrap();
         assert_eq!(deployment.server.tapis_user, "myuser");
@@ -607,9 +628,7 @@ mod tests {
             "token".to_string(),
             "gpt2".to_string(),
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         )
         .unwrap_err();
         assert!(matches!(err, ValidationError::InvalidTenantUrl(_)));
@@ -624,15 +643,25 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
         let deployment = FlexServPodDeployment::new(server, "dummy-token".to_string());
-        assert!(deployment.pod_id.starts_with('p'), "pod_id should start with p");
-        assert!(deployment.volume_id.starts_with('v'), "volume_id should start with v");
-        assert!(is_lowercase_alphanumeric(&deployment.pod_id), "pod_id must be lowercase alphanumeric");
-        assert!(is_lowercase_alphanumeric(&deployment.volume_id), "volume_id must be lowercase alphanumeric");
+        assert!(
+            deployment.pod_id.starts_with('p'),
+            "pod_id should start with p"
+        );
+        assert!(
+            deployment.volume_id.starts_with('v'),
+            "volume_id should start with v"
+        );
+        assert!(
+            is_lowercase_alphanumeric(&deployment.pod_id),
+            "pod_id must be lowercase alphanumeric"
+        );
+        assert!(
+            is_lowercase_alphanumeric(&deployment.volume_id),
+            "volume_id must be lowercase alphanumeric"
+        );
     }
 
     #[test]
@@ -644,9 +673,7 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
         let d1 = FlexServPodDeployment::new(server, "token".to_string());
         let server2 = FlexServInstance::new(
@@ -656,9 +683,7 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
         let d2 = FlexServPodDeployment::new(server2, "token".to_string());
         assert_eq!(d1.pod_id, d2.pod_id);
@@ -667,17 +692,17 @@ mod tests {
 
     #[test]
     fn test_pod_id_volume_id_from_deployment_id() {
-        let make_server = || FlexServInstance::new(
-            "https://tacc.tapis.io".to_string(),
-            "user1".to_string(),
-            "openai-community/gpt2".to_string(),
-            None,
-            None,
-            None,
-            Backend::Transformers {
-                command: vec![],
-            },
-        );
+        let make_server = || {
+            FlexServInstance::new(
+                "https://tacc.tapis.io".to_string(),
+                "user1".to_string(),
+                "openai-community/gpt2".to_string(),
+                None,
+                None,
+                None,
+                Backend::Transformers { command: vec![] },
+            )
+        };
         let uuid1 = "550e8400-e29b-41d4-a716-446655440000";
         let uuid2 = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
         let opts1 = PodDeploymentOptions {
@@ -695,8 +720,12 @@ mod tests {
         assert_eq!(d2.pod_id, "p6ba7b8109dad11d180b400c04fd430c8");
         assert_eq!(d2.volume_id, "v6ba7b8109dad11d180b400c04fd430c8");
         assert_ne!(d1.pod_id, d2.pod_id);
-        assert!(is_lowercase_alphanumeric(d1.pod_id.strip_prefix('p').unwrap()));
-        assert!(is_lowercase_alphanumeric(d1.volume_id.strip_prefix('v').unwrap()));
+        assert!(is_lowercase_alphanumeric(
+            d1.pod_id.strip_prefix('p').unwrap()
+        ));
+        assert!(is_lowercase_alphanumeric(
+            d1.volume_id.strip_prefix('v').unwrap()
+        ));
     }
 
     #[test]
@@ -708,13 +737,10 @@ mod tests {
             None,
             None,
             None,
-            Backend::Transformers {
-                command: vec![],
-            },
+            Backend::Transformers { command: vec![] },
         );
         let d = FlexServPodDeployment::new(server, "token".to_string());
         assert!(d.volume_info.is_none());
         assert!(d.pod_info.is_none());
     }
-
 }

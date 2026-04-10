@@ -32,19 +32,17 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let (base_url, token) = if let (Ok(url), Ok(t)) = (
-        std::env::var("POD_URL"),
-        std::env::var("FLEXSERV_TOKEN"),
-    ) {
-        (url, t)
-    } else if let [url, token, ..] = std::env::args().collect::<Vec<_>>().as_slice() {
-        (url.clone(), token.clone())
-    } else {
-        eprintln!("Usage: POD_URL=... FLEXSERV_TOKEN=... cargo run --example call_pod");
-        eprintln!("   or: cargo run --example call_pod -- <POD_URL> <FLEXSERV_TOKEN>");
-        eprintln!("Example token for GPT-2 (no FLEXSERV_SECRET): openai-community_gpt2");
-        std::process::exit(1);
-    };
+    let (base_url, token) =
+        if let (Ok(url), Ok(t)) = (std::env::var("POD_URL"), std::env::var("FLEXSERV_TOKEN")) {
+            (url, t)
+        } else if let [url, token, ..] = std::env::args().collect::<Vec<_>>().as_slice() {
+            (url.clone(), token.clone())
+        } else {
+            eprintln!("Usage: POD_URL=... FLEXSERV_TOKEN=... cargo run --example call_pod");
+            eprintln!("   or: cargo run --example call_pod -- <POD_URL> <FLEXSERV_TOKEN>");
+            eprintln!("Example token for GPT-2 (no FLEXSERV_SECRET): openai-community_gpt2");
+            std::process::exit(1);
+        };
 
     let base_url = base_url.trim_end_matches('/');
     let client = reqwest::blocking::Client::builder()
@@ -60,7 +58,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     headers.insert(AUTHORIZATION, bearer);
 
     println!("POD_URL: {}", base_url);
-    println!("Token:   {}...\n", if token.len() > 12 { &token[..12] } else { &token });
+    println!(
+        "Token:   {}...\n",
+        if token.len() > 12 {
+            &token[..12]
+        } else {
+            &token
+        }
+    );
 
     // 1. Health
     println!("--- GET /v1/flexserv/health ---");

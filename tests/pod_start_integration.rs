@@ -12,7 +12,7 @@
 //! If TAPIS_TENANT_URL, TAPIS_TOKEN, POD_ID, or VOLUME_ID is unset, tests are skipped.
 
 use flexserv_deployer::{
-    Backend, DeploymentResult, FlexServDeployment, FlexServPodDeployment, FlexServInstance,
+    Backend, DeploymentResult, FlexServDeployment, FlexServInstance, FlexServPodDeployment,
 };
 
 fn env_or_skip() -> Option<(String, String)> {
@@ -83,7 +83,10 @@ async fn test_start() {
         }
     };
 
-    let start_result = deployment.start().await.expect("start should succeed (pod must be STOPPED)");
+    let start_result = deployment
+        .start()
+        .await
+        .expect("start should succeed (pod must be STOPPED)");
     match start_result {
         DeploymentResult::PodResult {
             pod_id,
@@ -94,12 +97,21 @@ async fn test_start() {
             model_id,
             ..
         } => {
-            assert_eq!(pod_id, deployment.pod_id, "start() should return correct pod_id");
-            assert_eq!(volume_id, deployment.volume_id, "start() should return correct volume_id");
+            assert_eq!(
+                pod_id, deployment.pod_id,
+                "start() should return correct pod_id"
+            );
+            assert_eq!(
+                volume_id, deployment.volume_id,
+                "start() should return correct volume_id"
+            );
             assert_eq!(tapis_user, "testuser");
             assert_eq!(model_id, "no-model-yet");
             assert!(!pod_info.is_empty(), "start() should return pod_info");
-            eprintln!("Start OK -> pod_id: {}, volume_id: {}, pod_url: {:?}", pod_id, volume_id, pod_url);
+            eprintln!(
+                "Start OK -> pod_id: {}, volume_id: {}, pod_url: {:?}",
+                pod_id, volume_id, pod_url
+            );
         }
         _ => panic!("start() should return PodResult"),
     }

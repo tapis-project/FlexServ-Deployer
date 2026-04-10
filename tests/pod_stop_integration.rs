@@ -10,7 +10,7 @@
 //! If TAPIS_TENANT_URL, TAPIS_TOKEN, POD_ID, or VOLUME_ID is unset, tests are skipped.
 
 use flexserv_deployer::{
-    Backend, DeploymentResult, FlexServDeployment, FlexServPodDeployment, FlexServInstance,
+    Backend, DeploymentResult, FlexServDeployment, FlexServInstance, FlexServPodDeployment,
 };
 
 fn env_or_skip() -> Option<(String, String)> {
@@ -92,12 +92,21 @@ async fn test_stop() {
             model_id,
             ..
         } => {
-            assert_eq!(pod_id, deployment.pod_id, "stop() should return correct pod_id");
-            assert_eq!(volume_id, deployment.volume_id, "stop() should return correct volume_id");
+            assert_eq!(
+                pod_id, deployment.pod_id,
+                "stop() should return correct pod_id"
+            );
+            assert_eq!(
+                volume_id, deployment.volume_id,
+                "stop() should return correct volume_id"
+            );
             assert_eq!(tapis_user, "testuser");
             assert_eq!(model_id, "no-model-yet");
             assert!(!pod_info.is_empty(), "stop() should return pod_info");
-            eprintln!("Stop OK -> pod_id: {}, volume_id: {}, pod_url: {:?}", pod_id, volume_id, pod_url);
+            eprintln!(
+                "Stop OK -> pod_id: {}, volume_id: {}, pod_url: {:?}",
+                pod_id, volume_id, pod_url
+            );
         }
         _ => panic!("stop() should return PodResult"),
     }

@@ -46,7 +46,9 @@ impl fmt::Display for ValidationError {
             ValidationError::InvalidTenantUrl(msg) => write!(f, "invalid tenant URL: {}", msg),
             ValidationError::EmptyTapisUser => write!(f, "tapis_user must be non-empty"),
             ValidationError::EmptyModelId => write!(f, "model_id must be non-empty"),
-            ValidationError::InvalidModelRevision(msg) => write!(f, "invalid model_revision: {}", msg),
+            ValidationError::InvalidModelRevision(msg) => {
+                write!(f, "invalid model_revision: {}", msg)
+            }
             ValidationError::MissingBackend => write!(f, "backend is required"),
         }
     }
@@ -240,7 +242,7 @@ mod tests {
             "testuser".to_string(),
             "Qwen/Qwen3-0.6B".to_string(),
             None,
-            None, 
+            None,
             None,
             Backend::Transformers { command: vec![] },
         );
@@ -256,7 +258,7 @@ mod tests {
             "testuser".to_string(),
             "Qwen/Qwen3-0.6B".to_string(),
             None,
-            None, 
+            None,
             None,
             Backend::Transformers { command: vec![] },
         );
@@ -273,9 +275,7 @@ mod tests {
             .tenant_url("https://tacc.tapis.io")
             .tapis_user("myuser")
             .model("openai-community/gpt2")
-            .backend(Backend::Transformers {
-                command: vec![],
-            })
+            .backend(Backend::Transformers { command: vec![] })
             .build()
             .unwrap();
         assert_eq!(server.tenant_url, "https://tacc.tapis.io");
@@ -288,9 +288,7 @@ mod tests {
         let err = FlexServInstance::builder()
             .tenant_url("https://tacc.tapis.io")
             .model("gpt2")
-            .backend(Backend::Transformers {
-                command: vec![],
-            })
+            .backend(Backend::Transformers { command: vec![] })
             .build()
             .unwrap_err();
         assert!(matches!(err, ValidationError::EmptyTapisUser));
@@ -301,9 +299,7 @@ mod tests {
         let err = FlexServInstance::builder()
             .tenant_url("https://tacc.tapis.io")
             .tapis_user("u")
-            .backend(Backend::Transformers {
-                command: vec![],
-            })
+            .backend(Backend::Transformers { command: vec![] })
             .build()
             .unwrap_err();
         assert!(matches!(err, ValidationError::EmptyModelId));
@@ -315,9 +311,7 @@ mod tests {
             .tenant_url("not-a-url")
             .tapis_user("u")
             .model("m")
-            .backend(Backend::Transformers {
-                command: vec![],
-            })
+            .backend(Backend::Transformers { command: vec![] })
             .build()
             .unwrap_err();
         assert!(matches!(err, ValidationError::InvalidTenantUrl(_)));
@@ -336,7 +330,11 @@ mod tests {
             hf_token: None,
             default_embedding_model: None,
         };
-        let server = FlexServInstance::from_configs(&tapis, &model, Backend::Transformers { command: vec![] });
+        let server = FlexServInstance::from_configs(
+            &tapis,
+            &model,
+            Backend::Transformers { command: vec![] },
+        );
         assert_eq!(server.tenant_url, tapis.tenant_url);
         assert_eq!(server.default_model, model.model_id);
     }
@@ -347,9 +345,7 @@ mod tests {
             .tenant_url("tacc.tapis.io")
             .tapis_user("u")
             .model("gpt2")
-            .backend(Backend::Transformers {
-                command: vec![],
-            })
+            .backend(Backend::Transformers { command: vec![] })
             .build()
             .unwrap();
         assert_eq!(server.tenant_url, "https://tacc.tapis.io");

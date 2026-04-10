@@ -6,7 +6,7 @@ use std::fmt;
 mod hpc;
 mod pod;
 
-pub use hpc::FlexServHPCDeployment;
+pub use hpc::{FlexServHPCDeployment, HpcDeploymentOptions};
 pub use pod::{FlexServPodDeployment, PodDeploymentOptions};
 
 /// Deployment result enum.
@@ -64,10 +64,14 @@ impl fmt::Display for DeploymentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeploymentError::TapisAuthFailed(msg) => write!(f, "TAPIS auth failed: {}", msg),
-            DeploymentError::TapisAPIUnreachable(msg) => write!(f, "TAPIS API unreachable: {}", msg),
+            DeploymentError::TapisAPIUnreachable(msg) => {
+                write!(f, "TAPIS API unreachable: {}", msg)
+            }
             DeploymentError::TapisBadRequest(msg) => write!(f, "TAPIS bad request: {}", msg),
             DeploymentError::TapisTimeout(msg) => write!(f, "TAPIS timeout: {}", msg),
-            DeploymentError::TapisInternalServerError(msg) => write!(f, "TAPIS server error: {}", msg),
+            DeploymentError::TapisInternalServerError(msg) => {
+                write!(f, "TAPIS server error: {}", msg)
+            }
             DeploymentError::UnknownError(msg) => write!(f, "Unknown error: {}", msg),
             DeploymentError::ModelUploadingFailed(msg) => write!(f, "Model upload failed: {}", msg),
             DeploymentError::PodCreationFailed(msg) => write!(f, "Pod creation failed: {}", msg),
@@ -122,7 +126,9 @@ mod tests {
             model_id: "m".to_string(),
         };
         match &r {
-            DeploymentResult::PodResult { pod_id, pod_url, .. } => {
+            DeploymentResult::PodResult {
+                pod_id, pod_url, ..
+            } => {
                 assert_eq!(pod_id, "p1");
                 assert_eq!(pod_url.as_deref(), Some("http://pod:8000"));
             }

@@ -10,7 +10,7 @@
 //! If TAPIS_TENANT_URL or TAPIS_TOKEN is unset, tests are skipped (pass without calling API).
 
 use flexserv_deployer::{
-    Backend, DeploymentResult, FlexServDeployment, FlexServPodDeployment, FlexServInstance,
+    Backend, DeploymentResult, FlexServDeployment, FlexServInstance, FlexServPodDeployment,
 };
 
 fn env_or_skip() -> Option<(String, String)> {
@@ -59,8 +59,11 @@ async fn test_create_functionality() {
 
     // Test create() - this also tests cleanup of existing pods/volumes (handled inside create_impl)
     let result = deployment.create().await;
-    let create_result = result.as_ref().map_err(|e| panic!("create failed: {:?}", e)).unwrap();
-    
+    let create_result = result
+        .as_ref()
+        .map_err(|e| panic!("create failed: {:?}", e))
+        .unwrap();
+
     match create_result {
         DeploymentResult::PodResult {
             pod_id,
@@ -72,14 +75,36 @@ async fn test_create_functionality() {
             tapis_tenant: _,
             model_id,
         } => {
-            assert!(!pod_id.is_empty(), "create() should return non-empty pod_id");
-            assert!(!volume_id.is_empty(), "create() should return non-empty volume_id");
-            assert_eq!(tapis_user, "testuser", "create() should return correct tapis_user");
-            assert_eq!(model_id, &expected_model_id, "create() should return correct model_id");
+            assert!(
+                !pod_id.is_empty(),
+                "create() should return non-empty pod_id"
+            );
+            assert!(
+                !volume_id.is_empty(),
+                "create() should return non-empty volume_id"
+            );
+            assert_eq!(
+                tapis_user, "testuser",
+                "create() should return correct tapis_user"
+            );
+            assert_eq!(
+                model_id, &expected_model_id,
+                "create() should return correct model_id"
+            );
             assert!(!pod_info.is_empty(), "create() should return pod_info");
-            assert!(!volume_info.is_empty(), "create() should return volume_info");
-            eprintln!("Create OK -> pod_id: {}, volume_id: {}, pod_url: {:?}", pod_id, volume_id, pod_url);
-            eprintln!("pod_info length: {} chars, volume_info length: {} chars", pod_info.len(), volume_info.len());
+            assert!(
+                !volume_info.is_empty(),
+                "create() should return volume_info"
+            );
+            eprintln!(
+                "Create OK -> pod_id: {}, volume_id: {}, pod_url: {:?}",
+                pod_id, volume_id, pod_url
+            );
+            eprintln!(
+                "pod_info length: {} chars, volume_info length: {} chars",
+                pod_info.len(),
+                volume_info.len()
+            );
         }
         _ => panic!("create() should return PodResult"),
     }

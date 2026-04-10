@@ -11,7 +11,7 @@
 //! If TAPIS_TENANT_URL, TAPIS_TOKEN, POD_ID, or VOLUME_ID is unset, tests are skipped.
 
 use flexserv_deployer::{
-    Backend, DeploymentResult, FlexServDeployment, FlexServPodDeployment, FlexServInstance,
+    Backend, DeploymentResult, FlexServDeployment, FlexServInstance, FlexServPodDeployment,
 };
 
 fn env_or_skip() -> Option<(String, String)> {
@@ -74,7 +74,10 @@ async fn test_terminate_functionality() {
 
     let deployment = match make_existing_deployment(&tenant_url, &tapis_token) {
         Some(d) => {
-            eprintln!("WARNING: This will DELETE pod {} and volume {}!", d.pod_id, d.volume_id);
+            eprintln!(
+                "WARNING: This will DELETE pod {} and volume {}!",
+                d.pod_id, d.volume_id
+            );
             d
         }
         None => {
@@ -83,7 +86,10 @@ async fn test_terminate_functionality() {
         }
     };
 
-    let terminate_result = deployment.terminate().await.expect("terminate should succeed");
+    let terminate_result = deployment
+        .terminate()
+        .await
+        .expect("terminate should succeed");
     match terminate_result {
         DeploymentResult::PodResult {
             pod_id,
@@ -94,13 +100,25 @@ async fn test_terminate_functionality() {
             model_id,
             ..
         } => {
-            assert_eq!(pod_id, deployment.pod_id, "terminate() should return correct pod_id");
-            assert_eq!(volume_id, deployment.volume_id, "terminate() should return correct volume_id");
+            assert_eq!(
+                pod_id, deployment.pod_id,
+                "terminate() should return correct pod_id"
+            );
+            assert_eq!(
+                volume_id, deployment.volume_id,
+                "terminate() should return correct volume_id"
+            );
             assert_eq!(tapis_user, "testuser");
             assert_eq!(model_id, "no-model-yet");
-            assert!(pod_url.is_none(), "terminate() should return None for pod_url");
+            assert!(
+                pod_url.is_none(),
+                "terminate() should return None for pod_url"
+            );
             assert!(!pod_info.is_empty(), "terminate() should return pod_info");
-            eprintln!("Terminate OK -> pod_id: {}, volume_id: {}", pod_id, volume_id);
+            eprintln!(
+                "Terminate OK -> pod_id: {}, volume_id: {}",
+                pod_id, volume_id
+            );
             eprintln!("pod_info length: {} chars", pod_info.len());
         }
         _ => panic!("terminate() should return PodResult"),
@@ -108,9 +126,15 @@ async fn test_terminate_functionality() {
 
     // Verify pod/volume are actually deleted: monitor() should return error (pod not found)
     let monitor_result = deployment.monitor().await;
-    assert!(monitor_result.is_err(), "monitor() should return error after terminate()");
+    assert!(
+        monitor_result.is_err(),
+        "monitor() should return error after terminate()"
+    );
     if let Err(e) = monitor_result {
-        eprintln!("Verified: monitor() returns error after terminate (pod not found): {:?}", e);
+        eprintln!(
+            "Verified: monitor() returns error after terminate (pod not found): {:?}",
+            e
+        );
     }
     eprintln!("Verified: pod and volume are deleted");
 }

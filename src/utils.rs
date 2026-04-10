@@ -44,16 +44,28 @@ mod tests {
 
     #[test]
     fn test_normalize_tenant_url() {
-        assert_eq!(normalize_tenant_url("tacc.tapis.io"), "https://tacc.tapis.io");
-        assert_eq!(normalize_tenant_url("https://tacc.tapis.io"), "https://tacc.tapis.io");
-        assert_eq!(normalize_tenant_url("  tacc.tapis.io  "), "https://tacc.tapis.io");
+        assert_eq!(
+            normalize_tenant_url("tacc.tapis.io"),
+            "https://tacc.tapis.io"
+        );
+        assert_eq!(
+            normalize_tenant_url("https://tacc.tapis.io"),
+            "https://tacc.tapis.io"
+        );
+        assert_eq!(
+            normalize_tenant_url("  tacc.tapis.io  "),
+            "https://tacc.tapis.io"
+        );
         assert_eq!(normalize_tenant_url(""), "");
     }
 
     #[test]
     fn test_normalize_to_lowercase_alphanumeric() {
         assert_eq!(normalize_to_lowercase_alphanumeric(""), "");
-        assert_eq!(normalize_to_lowercase_alphanumeric("550e8400-e29b-41d4-a716-446655440000"), "550e8400e29b41d4a716446655440000");
+        assert_eq!(
+            normalize_to_lowercase_alphanumeric("550e8400-e29b-41d4-a716-446655440000"),
+            "550e8400e29b41d4a716446655440000"
+        );
         assert_eq!(normalize_to_lowercase_alphanumeric("ABC-123"), "abc123");
     }
 }

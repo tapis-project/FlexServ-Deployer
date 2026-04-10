@@ -28,8 +28,8 @@
 //!   cargo run --example create_pod -- https://tacc.tapis.io <jwt>
 
 use flexserv_deployer::{
-    Backend, DeploymentError, DeploymentResult, FlexServDeployment, FlexServPodDeployment,
-    FlexServInstance,
+    Backend, DeploymentError, DeploymentResult, FlexServDeployment, FlexServInstance,
+    FlexServPodDeployment,
 };
 
 #[tokio::main]
@@ -50,7 +50,8 @@ async fn main() -> Result<(), DeploymentError> {
     };
 
     // Model id: from FLEXSERV_MODEL_ID (no built-in default; pod expects model at /app/models/<model_name>).
-    let model_id = std::env::var("FLEXSERV_MODEL_ID").unwrap_or_else(|_| "no-model-yet".to_string());
+    let model_id =
+        std::env::var("FLEXSERV_MODEL_ID").unwrap_or_else(|_| "no-model-yet".to_string());
     let hf_token = std::env::var("HF_TOKEN").ok();
     let server = FlexServInstance::new(
         tenant_url,
@@ -78,16 +79,25 @@ async fn main() -> Result<(), DeploymentError> {
             model_id,
         } => {
             println!("Create succeeded:");
-            println!("  pod_id:     {}  (use for start/stop/terminate/monitor)", pod_id);
+            println!(
+                "  pod_id:     {}  (use for start/stop/terminate/monitor)",
+                pod_id
+            );
             println!("  volume_id:  {}", volume_id);
             if let Some(ref url) = pod_url {
-                println!("  pod_url:    {}  (use for inference or health checks)", url);
+                println!(
+                    "  pod_url:    {}  (use for inference or health checks)",
+                    url
+                );
             } else {
                 println!("  pod_url:    (not yet available)");
             }
             println!("  tapis_user: {}", tapis_user);
             println!("  tapis_tenant: {}", tapis_tenant);
-            println!("  model_id:   {}  (use this in request JSON: \"model\": \"...\" )", model_id);
+            println!(
+                "  model_id:   {}  (use this in request JSON: \"model\": \"...\" )",
+                model_id
+            );
             let auth_token = model_id.replace('/', "_");
             println!("  auth_token: {} (use as Authorization: Bearer or X-FlexServ-Secret; add FLEXSERV_SECRET prefix if you set it)", auth_token);
             println!("  pod_info: {}", pod_info.chars().collect::<String>());

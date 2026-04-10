@@ -13,8 +13,8 @@
 //!   cargo run --example terminate_pod -- https://tacc.tapis.io <jwt> <pod_id> <volume_id>
 
 use flexserv_deployer::{
-    Backend, DeploymentError, DeploymentResult, FlexServDeployment, FlexServPodDeployment,
-    FlexServInstance,
+    Backend, DeploymentError, DeploymentResult, FlexServDeployment, FlexServInstance,
+    FlexServPodDeployment,
 };
 
 #[tokio::main]
@@ -45,7 +45,12 @@ async fn main() -> Result<(), DeploymentError> {
         None,
         Backend::Transformers { command: vec![] },
     );
-    let deployment = FlexServPodDeployment::from_existing(server, tapis_token, pod_id.clone(), volume_id.clone());
+    let deployment = FlexServPodDeployment::from_existing(
+        server,
+        tapis_token,
+        pod_id.clone(),
+        volume_id.clone(),
+    );
 
     println!("Terminating pod {} and volume {}...", pod_id, volume_id);
     let result = deployment.terminate().await?;
