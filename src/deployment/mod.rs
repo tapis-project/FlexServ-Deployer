@@ -20,6 +20,8 @@ pub enum DeploymentResult {
         volume_id: String,
         /// URL to reach the pod (e.g. from networking.default.url). Use for inference or health checks.
         pod_url: Option<String>,
+        /// Raw TAPIS pod status (e.g. `AVAILABLE`, `RUNNING`, `STOPPED`).
+        status: Option<String>,
         pod_info: String,
         volume_info: String,
         tapis_user: String,
@@ -27,6 +29,10 @@ pub enum DeploymentResult {
         model_id: String,
     },
     HPCResult {
+        /// TAPIS Jobs API job UUID (empty if the submit response did not include one).
+        job_uuid: String,
+        /// Raw TAPIS job status (e.g. `PENDING`, `RUNNING`, `FINISHED`, `FAILED`).
+        status: Option<String>,
         job_info: String,
         tapis_user: String,
         tapis_tenant: String,
@@ -119,6 +125,7 @@ mod tests {
             pod_id: "p1".to_string(),
             volume_id: "v1".to_string(),
             pod_url: Some("http://pod:8000".to_string()),
+            status: Some("AVAILABLE".to_string()),
             pod_info: "info".to_string(),
             volume_info: "vol".to_string(),
             tapis_user: "u".to_string(),

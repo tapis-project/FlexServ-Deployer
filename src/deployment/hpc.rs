@@ -268,8 +268,11 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .and_then(|j| j.uuid.clone())
             .unwrap_or_default();
         self.job_uuid = Some(job_uuid.clone());
+        let status = self.job_status().await.ok();
 
         Ok(DeploymentResult::HPCResult {
+            job_uuid: job_uuid.clone(),
+            status,
             job_info: format!("job_uuid={}; response={:#?}", job_uuid, job),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
@@ -279,12 +282,24 @@ impl FlexServDeployment for FlexServHPCDeployment {
 
     async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.jobs_config()?;
-        let job_uuid = self.require_job_uuid()?;
-        let resp = jobs_api::resubmit_job(&config, job_uuid, None)
+        let prior_uuid = self.require_job_uuid()?;
+        let resp = jobs_api::resubmit_job(&config, prior_uuid, None)
             .await
             .map_err(Self::map_jobs_error)?;
+        let job = resp.result;
+        let job_uuid = job
+            .as_ref()
+            .and_then(|j| j.uuid.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| prior_uuid.to_string());
+        let status = jobs_api::get_job_status(&config, &job_uuid)
+            .await
+            .ok()
+            .and_then(|r| r.result.as_ref().and_then(|s| s.status.clone()));
         Ok(DeploymentResult::HPCResult {
-            job_info: format!("resubmitted from {}; response={:#?}", job_uuid, resp.result),
+            job_uuid,
+            status,
+            job_info: format!("resubmitted from {}; response={:#?}", prior_uuid, job),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
             model_id: self.server.default_model.clone(),
@@ -297,7 +312,10 @@ impl FlexServDeployment for FlexServHPCDeployment {
         let resp = jobs_api::cancel_job(&config, job_uuid, None)
             .await
             .map_err(Self::map_jobs_error)?;
+        let status = self.job_status().await.ok();
         Ok(DeploymentResult::HPCResult {
+            job_uuid: job_uuid.to_string(),
+            status,
             job_info: format!("canceled {}; response={:#?}", job_uuid, resp.result),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
@@ -318,7 +336,10 @@ impl FlexServDeployment for FlexServHPCDeployment {
         let full_resp = jobs_api::get_job(&config, job_uuid)
             .await
             .map_err(Self::map_jobs_error)?;
+        let status = status_resp.result.as_ref().and_then(|r| r.status.clone());
         Ok(DeploymentResult::HPCResult {
+            job_uuid: job_uuid.to_string(),
+            status,
             job_info: format!(
                 "status={:#?}\njob={:#?}",
                 status_resp.result, full_resp.result

@@ -372,11 +372,13 @@ impl FlexServDeployment for FlexServPodDeployment {
         self.volume_info = Some(self.volume_id.clone());
 
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
+        let status = pod_resp.result.status.clone();
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
             pod_url,
+            status,
             pod_info: self.pod_info.clone().unwrap_or_default(),
             volume_info: self.volume_info.clone().unwrap_or_default(),
             tapis_user: self.server.tapis_user.clone(),
@@ -392,11 +394,13 @@ impl FlexServDeployment for FlexServPodDeployment {
             .map_err(Self::_map_pods_error)?;
 
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
+        let status = pod_resp.result.status.clone();
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
             pod_url,
+            status,
             pod_info: format!("{:#?}", pod_resp.result),
             volume_info: self.volume_id.clone(),
             tapis_user: self.server.tapis_user.clone(),
@@ -412,11 +416,13 @@ impl FlexServDeployment for FlexServPodDeployment {
             .map_err(Self::_map_pods_error)?;
 
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
+        let status = pod_resp.result.status.clone();
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
             pod_url,
+            status,
             pod_info: format!("{:#?}", pod_resp.result),
             volume_info: self.volume_id.clone(),
             tapis_user: self.server.tapis_user.clone(),
@@ -480,6 +486,7 @@ impl FlexServDeployment for FlexServPodDeployment {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
             pod_url: None, // pod deleted
+            status: None,
             pod_info: combined_info,
             volume_info: String::new(),
             tapis_user: self.server.tapis_user.clone(),
@@ -495,7 +502,7 @@ impl FlexServDeployment for FlexServPodDeployment {
             .await
             .map_err(Self::_map_pods_error)?;
 
-        eprintln!("pods_api::get_pod result:\n{:#?}", pod_resp);
+        log::debug!("pods_api::get_pod result:\n{:#?}", pod_resp);
 
         let volume_info = if self.volume_id.is_empty() {
             String::new()
@@ -508,11 +515,13 @@ impl FlexServDeployment for FlexServPodDeployment {
 
         let pod_info = format!("{:#?}", pod_resp.result);
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
+        let status = pod_resp.result.status.clone();
 
         Ok(DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
             pod_url,
+            status,
             pod_info,
             volume_info,
             tapis_user: self.server.tapis_user.clone(),
