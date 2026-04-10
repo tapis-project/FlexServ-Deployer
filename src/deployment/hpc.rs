@@ -172,6 +172,26 @@ impl FlexServHPCDeployment {
         }
     }
 
+    /// `Job.status` from submit/resubmit responses (`Option<Status>`), as TAPIS API strings.
+    fn job_status_from_record(job: &models::Job) -> Option<String> {
+        job.status.map(|s| match s {
+            models::job::Status::Pending => "PENDING",
+            models::job::Status::ProcessingInputs => "PROCESSING_INPUTS",
+            models::job::Status::StagingInputs => "STAGING_INPUTS",
+            models::job::Status::StagingJob => "STAGING_JOB",
+            models::job::Status::SubmittingJob => "SUBMITTING_JOB",
+            models::job::Status::Queued => "QUEUED",
+            models::job::Status::Running => "RUNNING",
+            models::job::Status::Archiving => "ARCHIVING",
+            models::job::Status::Blocked => "BLOCKED",
+            models::job::Status::Paused => "PAUSED",
+            models::job::Status::Finished => "FINISHED",
+            models::job::Status::Cancelled => "CANCELLED",
+            models::job::Status::Failed => "FAILED",
+        }
+        .to_string())
+    }
+
     fn build_submit_request(&self) -> Result<models::ReqSubmitJob, DeploymentError> {
         let options = self.options.as_ref().ok_or_else(|| {
             DeploymentError::JobCreationFailed(
@@ -268,7 +288,7 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .and_then(|j| j.uuid.clone())
             .unwrap_or_default();
         self.job_uuid = Some(job_uuid.clone());
-        let status = self.job_status().await.ok();
+        let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
 
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.clone(),
@@ -292,14 +312,14 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .and_then(|j| j.uuid.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| prior_uuid.to_string());
-        let status = jobs_api::get_job_status(&config, &job_uuid)
-            .await
-            .ok()
-            .and_then(|r| r.result.as_ref().and_then(|s| s.status.clone()));
+        let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
         Ok(DeploymentResult::HPCResult {
-            job_uuid,
+            job_uuid: job_uuid.clone(),
             status,
-            job_info: format!("resubmitted from {}; response={:#?}", prior_uuid, job),
+            job_info: format!(
+                "job_uuid={} (resubmitted from {}); response={:#?}",
+                job_uuid, prior_uuid, job
+            ),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
             model_id: self.server.default_model.clone(),
@@ -312,10 +332,10 @@ impl FlexServDeployment for FlexServHPCDeployment {
         let resp = jobs_api::cancel_job(&config, job_uuid, None)
             .await
             .map_err(Self::map_jobs_error)?;
-        let status = self.job_status().await.ok();
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.to_string(),
-            status,
+            // `JobCancelDisplay` has no lifecycle status; avoid a follow-up GET that could fail silently.
+            status: None,
             job_info: format!("canceled {}; response={:#?}", job_uuid, resp.result),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
