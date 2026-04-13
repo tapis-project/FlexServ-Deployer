@@ -182,6 +182,60 @@ fn value_to_hpc_args(flag: &str, value: &Value) -> Option<String> {
     }
 }
 
+/// Every parameter key the FlexServ Tapis application understands in its
+/// `parameterSet.appArgs`.  Keys outside this set are silently ignored by the
+/// TAPIS job runner; keeping a single authoritative list here makes any drift
+/// between the deployer and the app definition visible at runtime.
+///
+/// Update this list whenever the FlexServ app spec gains or drops a parameter.
+pub const FLEXSERV_APP_HPC_ALLOWED_KEYS: &[&str] = &[
+    // ── Transformers ──────────────────────────────────────────────────────────
+    "attn-implementation",
+    "continuous-batching",
+    "default-embedding-model",
+    "device",
+    "dtype",
+    "enable-cors",
+    "force-default-embedding-model",
+    "force-default-model",
+    "log-level",
+    "model-timeout",
+    "non-blocking",
+    "quantization",
+    "trust-remote-code",
+    // ── vLLM ─────────────────────────────────────────────────────────────────
+    "gpu-memory-utilization",
+    "max-model-len",
+    "pipeline-parallel-size",
+    "tensor-parallel-size",
+    // ── SGLang ───────────────────────────────────────────────────────────────
+    "mem-fraction-static",
+    "tp-size",
+    // ── TRT-LLM ──────────────────────────────────────────────────────────────
+    "max-batch-size",
+    "max-input-len",
+];
+
+/// Retain only keys present in [`FLEXSERV_APP_HPC_ALLOWED_KEYS`].
+///
+/// A `log::warn!` is emitted for every dropped key so that stale or
+/// mis-spelled parameter names surface immediately at deployment time
+/// rather than being silently swallowed by the TAPIS job runner.
+fn filter_hpc_options(options: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+    let mut out = BTreeMap::new();
+    for (key, value) in options {
+        if FLEXSERV_APP_HPC_ALLOWED_KEYS.contains(&key.as_str()) {
+            out.insert(key.clone(), value.clone());
+        } else {
+            log::warn!(
+                "build_params_for_hpc: dropping unknown key \"{key}\" \
+                 (not listed in FLEXSERV_APP_HPC_ALLOWED_KEYS)"
+            );
+        }
+    }
+    out
+}
+
 fn build_hpc_from_options(
     options: &BTreeMap<String, Value>,
     env: &HashMap<String, Value>,
@@ -251,24 +305,10 @@ impl BackendParameterSetBuilder for TransformersParameterSetBuilder {
                 Value::String(model.clone()),
             );
         }
-        let allowed = [
-            "device",
-            "dtype",
-            "continuous-batching",
-            "force-default-embedding-model",
-            "log-level",
-            "quantization",
-            "trust-remote-code",
-            "attn-implementation",
-            "enable-cors",
-            "non-blocking",
-            "default-embedding-model",
-            "force-default-model",
-        ];
-        for (key, value) in &self.options {
-            if allowed.contains(&key.as_str()) {
-                merged.insert(key.clone(), value.clone());
-            }
+        // Caller-supplied options override defaults; unknown keys are dropped
+        // with a warning so drift against the FlexServ app spec is visible.
+        for (key, value) in filter_hpc_options(&self.options) {
+            merged.insert(key, value);
         }
         build_hpc_from_options(&merged, &self.environment_variables)
     }
@@ -363,6 +403,16 @@ impl TransformersParameterSetBuilder {
         self
     }
 
+    /// Insert an arbitrary option key/value pair.
+    ///
+    /// For pod deployments all keys pass through; for HPC deployments any key
+    /// absent from [`FLEXSERV_APP_HPC_ALLOWED_KEYS`] will be dropped with a
+    /// warning at [`build_params_for_hpc`] time.
+    pub fn insert_option(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.options.insert(key.into(), value.into());
+        self
+    }
+
     pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.environment_variables
             .insert(key.into(), Value::String(value.into()));
@@ -391,7 +441,7 @@ impl BackendParameterSetBuilder for VLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&self.options, &self.environment_variables)
+        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
     }
 }
 
@@ -424,6 +474,12 @@ impl VLlmParameterSetBuilder {
         self
     }
 
+    /// Insert an arbitrary option key/value pair.
+    pub fn insert_option(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.options.insert(key.into(), value.into());
+        self
+    }
+
     pub fn insert_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.environment_variables
             .insert(key.into(), Value::String(value.into()));
@@ -452,7 +508,7 @@ impl BackendParameterSetBuilder for SGLangParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&self.options, &self.environment_variables)
+        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
     }
 }
 
@@ -472,6 +528,12 @@ impl SGLangParameterSetBuilder {
 
     pub fn mem_fraction_static(mut self, fraction: f32) -> Self {
         set_builder_option(&mut self.options, "mem-fraction-static", fraction);
+        self
+    }
+
+    /// Insert an arbitrary option key/value pair.
+    pub fn insert_option(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.options.insert(key.into(), value.into());
         self
     }
 
@@ -503,7 +565,7 @@ impl BackendParameterSetBuilder for TrtLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&self.options, &self.environment_variables)
+        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
     }
 }
 
@@ -523,6 +585,12 @@ impl TrtLlmParameterSetBuilder {
 
     pub fn max_input_len(mut self, len: u32) -> Self {
         set_builder_option(&mut self.options, "max-input-len", len);
+        self
+    }
+
+    /// Insert an arbitrary option key/value pair.
+    pub fn insert_option(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.options.insert(key.into(), value.into());
         self
     }
 
@@ -731,6 +799,153 @@ mod tests {
         assert!(!app_args
             .iter()
             .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16")));
+    }
+
+    // Helper: collect all arg strings from an HPCParameterSet.
+    fn hpc_arg_strings(params: &HPCParameterSet) -> Vec<String> {
+        params
+            .app_args
+            .as_ref()
+            .map(|args| {
+                args.iter()
+                    .filter_map(|a| a.arg.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn test_unknown_keys_are_dropped_from_hpc_output_transformers() {
+        let server = FlexServInstance::new(
+            "https://public.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::Transformers { command: vec![] },
+        );
+        // "flexserv-token" is a pod-only key; it must not appear in HPC output.
+        let hpc_params = TransformersParameterSetBuilder::new(None)
+            .insert_option("flexserv-token", "secret")
+            .build_params_for_hpc(&server);
+        let args = hpc_arg_strings(&hpc_params);
+        assert!(
+            !args.iter().any(|a| a.contains("flexserv-token")),
+            "pod-only key flexserv-token must not appear in HPC args: {args:?}"
+        );
+    }
+
+    #[test]
+    fn test_unknown_keys_are_dropped_from_hpc_output_vllm() {
+        let server = FlexServInstance::new(
+            "https://public.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::VLlm { command: vec![] },
+        );
+        // "unknown-flag" is not in FLEXSERV_APP_HPC_ALLOWED_KEYS.
+        let hpc_params = VLlmParameterSetBuilder::new(None)
+            .insert_option("unknown-flag", "val")
+            .build_params_for_hpc(&server);
+        let args = hpc_arg_strings(&hpc_params);
+        assert!(
+            !args.iter().any(|a| a.contains("unknown-flag")),
+            "unknown key must be dropped from vLLM HPC args: {args:?}"
+        );
+    }
+
+    #[test]
+    fn test_unknown_keys_are_dropped_from_hpc_output_sglang() {
+        let server = FlexServInstance::new(
+            "https://public.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::SGLang { command: vec![] },
+        );
+        let hpc_params = SGLangParameterSetBuilder::new(None)
+            .insert_option("not-a-real-param", 1)
+            .build_params_for_hpc(&server);
+        let args = hpc_arg_strings(&hpc_params);
+        assert!(
+            !args.iter().any(|a| a.contains("not-a-real-param")),
+            "unknown key must be dropped from SGLang HPC args: {args:?}"
+        );
+    }
+
+    #[test]
+    fn test_unknown_keys_are_dropped_from_hpc_output_trtllm() {
+        let server = FlexServInstance::new(
+            "https://public.tapis.io".to_string(),
+            "user".to_string(),
+            "gpt2".to_string(),
+            None,
+            None,
+            None,
+            Backend::TrtLlm { command: vec![] },
+        );
+        let hpc_params = TrtLlmParameterSetBuilder::new(None)
+            .insert_option("bogus-key", "x")
+            .build_params_for_hpc(&server);
+        let args = hpc_arg_strings(&hpc_params);
+        assert!(
+            !args.iter().any(|a| a.contains("bogus-key")),
+            "unknown key must be dropped from TrtLLM HPC args: {args:?}"
+        );
+    }
+
+    #[test]
+    fn test_known_keys_pass_through_filter_for_each_backend() {
+        let make_server = |backend: Backend| {
+            FlexServInstance::new(
+                "https://public.tapis.io".to_string(),
+                "user".to_string(),
+                "gpt2".to_string(),
+                None,
+                None,
+                None,
+                backend,
+            )
+        };
+
+        // vLLM: tensor-parallel-size is in the allowed list
+        let vllm_params = VLlmParameterSetBuilder::new(None)
+            .tensor_parallel_size(8)
+            .build_params_for_hpc(&make_server(Backend::VLlm { command: vec![] }));
+        assert!(
+            hpc_arg_strings(&vllm_params)
+                .iter()
+                .any(|a| a.contains("tensor-parallel-size")),
+            "tensor-parallel-size must survive the filter"
+        );
+
+        // SGLang: tp-size is in the allowed list
+        let sglang_params = SGLangParameterSetBuilder::new(None)
+            .tp_size(4)
+            .build_params_for_hpc(&make_server(Backend::SGLang { command: vec![] }));
+        assert!(
+            hpc_arg_strings(&sglang_params)
+                .iter()
+                .any(|a| a.contains("tp-size")),
+            "tp-size must survive the filter"
+        );
+
+        // TRT-LLM: max-batch-size is in the allowed list
+        let trtllm_params = TrtLlmParameterSetBuilder::new(None)
+            .max_batch_size(32)
+            .build_params_for_hpc(&make_server(Backend::TrtLlm { command: vec![] }));
+        assert!(
+            hpc_arg_strings(&trtllm_params)
+                .iter()
+                .any(|a| a.contains("max-batch-size")),
+            "max-batch-size must survive the filter"
+        );
     }
 
     #[test]

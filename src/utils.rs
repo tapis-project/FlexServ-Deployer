@@ -6,8 +6,6 @@ pub fn is_absolute_http_url(s: &str) -> bool {
     (s.starts_with("https://") || s.starts_with("http://")) && s.len() > 8
 }
 
-/// Normalize tenant URL: trim; if no scheme, prepend `https://`
-/// (e.g. `tacc.tapis.io` → `https://tacc.tapis.io`).
 pub fn normalize_tenant_url(url: &str) -> String {
     let s = url.trim();
     if s.is_empty() {
@@ -16,7 +14,13 @@ pub fn normalize_tenant_url(url: &str) -> String {
     if s.starts_with("https://") || s.starts_with("http://") {
         return s.to_string();
     }
-    format!("https://{}", s)
+
+    let host = s.split('/').next().unwrap_or(s);
+    if host.contains('.') || host == "localhost" {
+        format!("https://{}", s)
+    } else {
+        s.to_string()
+    }
 }
 
 /// Normalize a string to lowercase ASCII alphanumeric only (e.g. strip dashes from a UUID).
@@ -57,6 +61,9 @@ mod tests {
             "https://tacc.tapis.io"
         );
         assert_eq!(normalize_tenant_url(""), "");
+        // bare words without a dot are returned unchanged (invalid; let validation reject them)
+        assert_eq!(normalize_tenant_url("not-a-url"), "not-a-url");
+        assert_eq!(normalize_tenant_url("localhost"), "https://localhost");
     }
 
     #[test]
