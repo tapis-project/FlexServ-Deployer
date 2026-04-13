@@ -236,6 +236,77 @@ fn filter_hpc_options(options: &BTreeMap<String, Value>) -> BTreeMap<String, Val
     out
 }
 
+fn push_or_replace_job_arg(
+    entries: &mut Vec<JobArgSpec>,
+    name: impl Into<String>,
+    arg: impl Into<String>,
+) {
+    let name = name.into();
+    let arg = arg.into();
+    if let Some(existing) = entries
+        .iter_mut()
+        .find(|e| e.name.as_deref() == Some(name.as_str()))
+    {
+        existing.arg = Some(arg);
+        existing.include = Some(true);
+    } else {
+        entries.push(hpc_job_arg(name, arg));
+    }
+}
+
+fn push_or_replace_env_var(
+    entries: &mut Vec<KeyValuePair>,
+    key: impl Into<String>,
+    value: impl Into<String>,
+) {
+    let key = key.into();
+    let value = value.into();
+    if let Some(existing) = entries
+        .iter_mut()
+        .find(|e| e.key.as_deref() == Some(key.as_str()))
+    {
+        existing.value = Some(value);
+        existing.include = Some(true);
+    } else {
+        entries.push(hpc_env_var(key, value));
+    }
+}
+
+/// Apply the FlexServ application contract to an HPC parameter set.
+///
+/// App args injected:
+/// - `--flexserv-port 8000`
+/// - `--model-name <server.default_model>`
+/// - `--enable-https`
+/// - `--is-distributed 0`
+///
+/// Env vars injected:
+/// - `FLEXSERV_BACKEND_TYPE`
+/// - `HUGGINGFACE_TOKEN` (only when `server.hf_token` is `Some`)
+fn apply_flexserv_hpc_contract(params: &mut HPCParameterSet, server: &FlexServInstance) {
+    let mut app_args = params.app_args.take().unwrap_or_default();
+    push_or_replace_job_arg(&mut app_args, "flexServPort", "--flexserv-port 8000");
+    push_or_replace_job_arg(
+        &mut app_args,
+        "modelName",
+        format!("--model-name {}", server.default_model),
+    );
+    push_or_replace_job_arg(&mut app_args, "enableHttps", "--enable-https");
+    push_or_replace_job_arg(&mut app_args, "isDistributed", "--is-distributed 0");
+    params.app_args = Some(app_args);
+
+    let mut env_vars = params.env_variables.take().unwrap_or_default();
+    push_or_replace_env_var(
+        &mut env_vars,
+        "FLEXSERV_BACKEND_TYPE",
+        server.backend.as_str().to_string(),
+    );
+    if let Some(hf_token) = &server.hf_token {
+        push_or_replace_env_var(&mut env_vars, "HUGGINGFACE_TOKEN", hf_token.clone());
+    }
+    params.env_variables = Some(env_vars);
+}
+
 fn build_hpc_from_options(
     options: &BTreeMap<String, Value>,
     env: &HashMap<String, Value>,
@@ -310,7 +381,9 @@ impl BackendParameterSetBuilder for TransformersParameterSetBuilder {
         for (key, value) in filter_hpc_options(&self.options) {
             merged.insert(key, value);
         }
-        build_hpc_from_options(&merged, &self.environment_variables)
+        let mut params = build_hpc_from_options(&merged, &self.environment_variables);
+        apply_flexserv_hpc_contract(&mut params, server);
+        params
     }
 }
 
@@ -440,8 +513,11 @@ impl BackendParameterSetBuilder for VLlmParameterSetBuilder {
         }
     }
 
-    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
+        let mut params =
+            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        apply_flexserv_hpc_contract(&mut params, server);
+        params
     }
 }
 
@@ -507,8 +583,11 @@ impl BackendParameterSetBuilder for SGLangParameterSetBuilder {
         }
     }
 
-    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
+        let mut params =
+            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        apply_flexserv_hpc_contract(&mut params, server);
+        params
     }
 }
 
@@ -564,8 +643,11 @@ impl BackendParameterSetBuilder for TrtLlmParameterSetBuilder {
         }
     }
 
-    fn build_params_for_hpc(&self, _server: &FlexServInstance) -> HPCParameterSet {
-        build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables)
+    fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
+        let mut params =
+            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        apply_flexserv_hpc_contract(&mut params, server);
+        params
     }
 }
 
@@ -744,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transformers_hpc_defaults_include_backend_args_only() {
+    fn test_transformers_hpc_params_include_backend_and_contract_args() {
         let server = FlexServInstance::new(
             "https://public.tapis.io".to_string(),
             "user".to_string(),
@@ -759,20 +841,33 @@ mod tests {
         let app_args = hpc_params.app_args.as_ref().unwrap();
         let env_vars = hpc_params.env_variables.as_ref().unwrap();
 
+        // Backend-specific defaults
         assert!(app_args
             .iter()
             .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16")));
         assert!(app_args.iter().any(|arg| arg.arg.as_deref()
             == Some("--default-embedding-model sentence-transformers/all-MiniLM-L6-v2")));
-        assert!(!app_args
+
+        // FlexServ contract args now live here, not in build_submit_request
+        assert!(app_args
             .iter()
             .any(|arg| arg.arg.as_deref() == Some("--model-name Qwen/Qwen3.5-0.8B")));
-        assert!(!app_args
+        assert!(app_args
             .iter()
             .any(|arg| arg.arg.as_deref() == Some("--enable-https")));
-        assert!(!env_vars.iter().any(|env| {
+        assert!(app_args
+            .iter()
+            .any(|arg| arg.arg.as_deref() == Some("--flexserv-port 8000")));
+        assert!(app_args
+            .iter()
+            .any(|arg| arg.arg.as_deref() == Some("--is-distributed 0")));
+        assert!(env_vars.iter().any(|env| {
             env.key.as_deref() == Some("FLEXSERV_BACKEND_TYPE")
-                || env.key.as_deref() == Some("HUGGINGFACE_TOKEN")
+                && env.value.as_deref() == Some("transformers")
+        }));
+        assert!(env_vars.iter().any(|env| {
+            env.key.as_deref() == Some("HUGGINGFACE_TOKEN")
+                && env.value.as_deref() == Some("hf_test_token")
         }));
     }
 

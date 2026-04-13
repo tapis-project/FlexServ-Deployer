@@ -35,62 +35,6 @@ impl HpcDeploymentOptions {
     }
 }
 
-fn hpc_job_arg(name: impl Into<String>, arg: impl Into<String>) -> models::JobArgSpec {
-    models::JobArgSpec {
-        name: Some(name.into()),
-        description: None,
-        include: Some(true),
-        arg: Some(arg.into()),
-        notes: None,
-    }
-}
-
-fn hpc_env_var(key: impl Into<String>, value: impl Into<String>) -> models::KeyValuePair {
-    models::KeyValuePair {
-        key: Some(key.into()),
-        value: Some(value.into()),
-        description: None,
-        include: Some(true),
-        notes: None,
-    }
-}
-
-fn push_or_replace_job_arg(
-    entries: &mut Vec<models::JobArgSpec>,
-    name: impl Into<String>,
-    arg: impl Into<String>,
-) {
-    let name = name.into();
-    let arg = arg.into();
-    if let Some(existing) = entries
-        .iter_mut()
-        .find(|entry| entry.name.as_deref() == Some(name.as_str()))
-    {
-        existing.arg = Some(arg);
-        existing.include = Some(true);
-    } else {
-        entries.push(hpc_job_arg(name, arg));
-    }
-}
-
-fn push_or_replace_env_var(
-    entries: &mut Vec<models::KeyValuePair>,
-    key: impl Into<String>,
-    value: impl Into<String>,
-) {
-    let key = key.into();
-    let value = value.into();
-    if let Some(existing) = entries
-        .iter_mut()
-        .find(|entry| entry.key.as_deref() == Some(key.as_str()))
-    {
-        existing.value = Some(value);
-        existing.include = Some(true);
-    } else {
-        entries.push(hpc_env_var(key, value));
-    }
-}
-
 /// HPC-based deployment using TAPIS Jobs.
 pub struct FlexServHPCDeployment {
     pub server: FlexServInstance,
@@ -215,28 +159,6 @@ impl FlexServHPCDeployment {
             .backend
             .parameter_set_builder()
             .build_params_for_hpc(&self.server);
-
-        let mut app_args = parameter_set.app_args.unwrap_or_default();
-        push_or_replace_job_arg(&mut app_args, "flexServPort", "--flexserv-port 8000");
-        push_or_replace_job_arg(
-            &mut app_args,
-            "modelName",
-            format!("--model-name {}", self.server.default_model),
-        );
-        push_or_replace_job_arg(&mut app_args, "enableHttps", "--enable-https");
-        push_or_replace_job_arg(&mut app_args, "isDistributed", "--is-distributed 0");
-        parameter_set.app_args = Some(app_args);
-
-        let mut env_vars = parameter_set.env_variables.unwrap_or_default();
-        push_or_replace_env_var(
-            &mut env_vars,
-            "FLEXSERV_BACKEND_TYPE",
-            self.server.backend.as_str().to_string(),
-        );
-        if let Some(hf_token) = &self.server.hf_token {
-            push_or_replace_env_var(&mut env_vars, "HUGGINGFACE_TOKEN", hf_token.clone());
-        }
-        parameter_set.env_variables = Some(env_vars);
 
         // FlexServ app defines scheduler option "TACC Resource Allocation" with placeholder.
         // Enforce explicit allocation so submissions don't accidentally run with a placeholder.
