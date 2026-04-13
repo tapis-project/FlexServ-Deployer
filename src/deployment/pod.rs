@@ -175,7 +175,7 @@ impl FlexServPodDeployment {
     }
 
     /// Map a tapis-pods error into our DeploymentError, based on HTTP status / network.
-    fn _map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
+    fn map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
         match err {
             apis::Error::Reqwest(e) => {
                 if e.is_timeout() {
@@ -250,12 +250,12 @@ impl FlexServDeployment for FlexServPodDeployment {
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         volumes_api::create_volume(&config, new_volume)
                             .await
-                            .map_err(Self::_map_pods_error)?;
+                            .map_err(Self::map_pods_error)?;
                     } else {
-                        return Err(Self::_map_pods_error(e));
+                        return Err(Self::map_pods_error(e));
                     }
                 } else {
-                    return Err(Self::_map_pods_error(e));
+                    return Err(Self::map_pods_error(e));
                 }
             }
         }
@@ -363,7 +363,7 @@ impl FlexServDeployment for FlexServPodDeployment {
                     self.volume_id
                 );
                 let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
-                return Err(Self::_map_pods_error(e));
+                return Err(Self::map_pods_error(e));
             }
         };
 
@@ -391,7 +391,7 @@ impl FlexServDeployment for FlexServPodDeployment {
         let config = self.pods_config()?;
         let pod_resp = pods_api::start_pod(&config, &self.pod_id)
             .await
-            .map_err(Self::_map_pods_error)?;
+            .map_err(Self::map_pods_error)?;
 
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
         let status = pod_resp.result.status.clone();
@@ -413,7 +413,7 @@ impl FlexServDeployment for FlexServPodDeployment {
         let config = self.pods_config()?;
         let pod_resp = pods_api::stop_pod(&config, &self.pod_id)
             .await
-            .map_err(Self::_map_pods_error)?;
+            .map_err(Self::map_pods_error)?;
 
         let pod_url = Self::_pod_url_from_result(&pod_resp.result);
         let status = pod_resp.result.status.clone();
@@ -440,7 +440,7 @@ impl FlexServDeployment for FlexServPodDeployment {
         let mut pod_error = None;
         match pods_api::delete_pod(&config, &self.pod_id).await {
             Ok(resp) => pod_resp = Some(resp),
-            Err(e) => pod_error = Some(Self::_map_pods_error(e)),
+            Err(e) => pod_error = Some(Self::map_pods_error(e)),
         }
 
         let mut vol_resp = None;
@@ -449,7 +449,7 @@ impl FlexServDeployment for FlexServPodDeployment {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             match volumes_api::delete_volume(&config, &self.volume_id).await {
                 Ok(resp) => vol_resp = Some(resp),
-                Err(e) => vol_error = Some(Self::_map_pods_error(e)),
+                Err(e) => vol_error = Some(Self::map_pods_error(e)),
             }
         }
 
@@ -500,7 +500,7 @@ impl FlexServDeployment for FlexServPodDeployment {
 
         let pod_resp = pods_api::get_pod(&config, &self.pod_id, None, None)
             .await
-            .map_err(Self::_map_pods_error)?;
+            .map_err(Self::map_pods_error)?;
 
         log::debug!("pods_api::get_pod result:\n{:#?}", pod_resp);
 

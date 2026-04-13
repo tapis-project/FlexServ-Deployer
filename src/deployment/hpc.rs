@@ -91,7 +91,7 @@ fn push_or_replace_env_var(
     }
 }
 
-/// HPC-based deployment
+/// HPC-based deployment using TAPIS Jobs.
 pub struct FlexServHPCDeployment {
     pub server: FlexServInstance,
     pub tapis_token: String,
