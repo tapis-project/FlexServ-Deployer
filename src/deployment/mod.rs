@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 use std::fmt;
+use tapis_sdk::jobs::models::Job;
 
 mod hpc;
 mod pod;
@@ -33,10 +34,13 @@ pub enum DeploymentResult {
         job_uuid: String,
         /// Raw TAPIS job status (e.g. `PENDING`, `RUNNING`, `FINISHED`, `FAILED`).
         status: Option<String>,
-        job_info: String,
-        tapis_user: String,
-        tapis_tenant: String,
-        model_id: String,
+        /// Raw TAPIS job object returned by the Jobs API.
+        job: Option<Job>,
+        /// Optional endpoint metadata returned only when job is RUNNING.
+        hpc_url: Option<String>,
+        /// Optional token returned only when job is RUNNING.
+        flexserv_token: Option<String>
+
     },
 }
 
@@ -55,6 +59,7 @@ pub enum DeploymentResult {
 /// show messages, use `?`, and return JSON from HTTP handlers (e.g. `HttpResponse::BadRequest().json(err)`).
 #[derive(Debug, Serialize)]
 pub enum DeploymentError {
+    InvalidConfiguration(String),
     TapisAuthFailed(String),
     TapisAPIUnreachable(String),
     TapisBadRequest(String),
@@ -64,11 +69,16 @@ pub enum DeploymentError {
     ModelUploadingFailed(String),
     PodCreationFailed(String),
     JobCreationFailed(String),
+    // TODO: extra errors
+    // JobExecutionFailed
 }
 
 impl fmt::Display for DeploymentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            DeploymentError::InvalidConfiguration(msg) => {
+                write!(f, "Invalid deployment configuration: {}", msg)
+            }
             DeploymentError::TapisAuthFailed(msg) => write!(f, "TAPIS auth failed: {}", msg),
             DeploymentError::TapisAPIUnreachable(msg) => {
                 write!(f, "TAPIS API unreachable: {}", msg)

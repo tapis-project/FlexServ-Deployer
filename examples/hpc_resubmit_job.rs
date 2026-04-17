@@ -6,31 +6,19 @@
 //! export TAPIS_TOKEN=...
 //! export TAPIS_USER=...
 //! export TAPIS_HPC_JOB_UUID=<previous-uuid>
-//! export TAPIS_TENANT_URL=https://public.tapis.io   # optional
+//! export TAPIS_TENANT_URL=https://public.tapis.io   # required for from_existing
 //! cargo run --example hpc_resubmit_job
 //! ```
 
-use flexserv_deployer::{Backend, FlexServDeployment, FlexServHPCDeployment, FlexServInstance};
+use flexserv_deployer::{FlexServDeployment, FlexServHPCDeployment};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tenant_url =
-        std::env::var("TAPIS_TENANT_URL").unwrap_or_else(|_| "https://public.tapis.io".to_string());
-    let tapis_user = std::env::var("TAPIS_USER").expect("TAPIS_USER is required");
     let job_uuid = std::env::var("TAPIS_HPC_JOB_UUID").expect("TAPIS_HPC_JOB_UUID is required");
     let tapis_token = std::env::var("TAPIS_TOKEN").expect("TAPIS_TOKEN is required");
-
-    let server = FlexServInstance::new(
-        tenant_url,
-        tapis_user,
-        std::env::var("FLEXSERV_MODEL_ID").unwrap_or_else(|_| "no-model-yet".to_string()),
-        None,
-        None,
-        None,
-        Backend::Transformers { command: vec![] },
-    );
-
-    let deployment = FlexServHPCDeployment::from_existing(server, tapis_token, job_uuid.clone());
+    let tenant_url = std::env::var("TAPIS_TENANT_URL").expect("TAPIS_TENANT_URL is required");
+    let mut deployment = FlexServHPCDeployment::from_existing(tapis_token, job_uuid.clone());
+    deployment.tenant_url = Some(tenant_url);
 
     println!("Resubmitting from job {}...", job_uuid);
     let result = deployment.start().await?;

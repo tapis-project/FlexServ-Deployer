@@ -1,5 +1,6 @@
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
 use crate::server::FlexServInstance;
+use tokio::time::{sleep, Duration};
 use tapis_sdk::jobs::apis;
 use tapis_sdk::jobs::apis::configuration;
 use tapis_sdk::jobs::apis::jobs_api;
@@ -13,6 +14,7 @@ pub struct HpcDeploymentOptions {
     pub exec_system_logical_queue: String,
     pub max_minutes: i32,
     pub allocation: String,
+    // reservation optional
 }
 
 impl HpcDeploymentOptions {
@@ -37,7 +39,8 @@ impl HpcDeploymentOptions {
 
 /// HPC-based deployment using TAPIS Jobs.
 pub struct FlexServHPCDeployment {
-    pub server: FlexServInstance,
+    pub server: Option<FlexServInstance>,
+    pub tenant_url: Option<String>,
     pub tapis_token: String,
     pub options: Option<HpcDeploymentOptions>,
     pub job_uuid: Option<String>,
@@ -50,7 +53,8 @@ impl FlexServHPCDeployment {
         options: HpcDeploymentOptions,
     ) -> Self {
         Self {
-            server,
+            tenant_url: Some(server.tenant_url.clone()),
+            server: Some(server),
             tapis_token,
             options: Some(options),
             job_uuid: None,
@@ -58,9 +62,10 @@ impl FlexServHPCDeployment {
     }
 
     /// Build deployment handle from an existing job UUID.
-    pub fn from_existing(server: FlexServInstance, tapis_token: String, job_uuid: String) -> Self {
+    pub fn from_existing(tapis_token: String, job_uuid: String) -> Self {
         Self {
-            server,
+            server: None,
+            tenant_url: None,
             tapis_token,
             options: None,
             job_uuid: Some(job_uuid),
@@ -68,10 +73,19 @@ impl FlexServHPCDeployment {
     }
 
     fn jobs_config(&self) -> Result<configuration::Configuration, DeploymentError> {
-        let base = self.server.tenant_url.trim_end_matches('/');
-        let api_base = format!("{}/v3", base);
         let mut config = configuration::Configuration::default();
-        config.base_path = api_base;
+        if let Some(server) = self.server.as_ref() {
+            let base = server.tenant_url.trim_end_matches('/');
+            config.base_path = format!("{}/v3", base);
+        } else if let Some(tenant_url) = self.tenant_url.as_ref() {
+            let base = tenant_url.trim_end_matches('/');
+            config.base_path = format!("{}/v3", base);
+        } else {
+            return Err(DeploymentError::InvalidConfiguration(
+                "missing tenant URL; pass server in new() or set tenant_url for from_existing()"
+                    .to_string(),
+            ));
+        }
         config.api_key = Some(configuration::ApiKey {
             prefix: None,
             key: self.tapis_token.clone(),
@@ -137,6 +151,11 @@ impl FlexServHPCDeployment {
     }
 
     fn build_submit_request(&self) -> Result<models::ReqSubmitJob, DeploymentError> {
+        let server = self.server.as_ref().ok_or_else(|| {
+            DeploymentError::JobCreationFailed(
+                "missing server context; create() requires full server metadata".to_string(),
+            )
+        })?;
         let options = self.options.as_ref().ok_or_else(|| {
             DeploymentError::JobCreationFailed(
                 "missing HPC deployment options; pass HpcDeploymentOptions from the call site"
@@ -144,7 +163,7 @@ impl FlexServHPCDeployment {
             )
         })?;
 
-        let deployment_hash = self.server.deployment_hash().to_lowercase();
+        let deployment_hash = server.deployment_hash().to_lowercase();
         let mut req = models::ReqSubmitJob::new(
             format!("flexserv-{}", deployment_hash),
             options.app_id.clone(),
@@ -156,9 +175,11 @@ impl FlexServHPCDeployment {
 
         let mut parameter_set = self
             .server
+            .as_ref()
+            .expect("server checked above")
             .backend
             .parameter_set_builder()
-            .build_params_for_hpc(&self.server);
+            .build_params_for_hpc(server);
 
         // FlexServ app defines scheduler option "TACC Resource Allocation" with placeholder.
         // Enforce explicit allocation so submissions don't accidentally run with a placeholder.
@@ -195,6 +216,99 @@ impl FlexServHPCDeployment {
             .and_then(|r| r.status.clone())
             .unwrap_or_else(|| "unknown".to_string()))
     }
+
+    fn parse_access_information(log_text: &str) -> Option<(String, String)> {
+        for line in log_text.lines() {
+            if !line.contains("FlexServ address:") || !line.contains("TAP token:") {
+                continue;
+            }
+            let rest = line.split_once("FlexServ address:")?.1.trim();
+            let (addr_part, token_part) = rest.split_once("TAP token:")?;
+            let hpc_url = addr_part.trim().to_string();
+            let flexserv_token = token_part.trim().to_string();
+            if !hpc_url.is_empty() && !flexserv_token.is_empty() {
+                return Some((hpc_url, flexserv_token));
+            }
+        }
+        None
+    }
+
+    async fn fetch_running_access_from_logs(
+        &self,
+        config: &configuration::Configuration,
+        job: &models::Job,
+    ) -> Option<(String, String)> {
+        let exec_system_id = job.exec_system_id.as_deref()?;
+        let exec_output_dir = job.exec_system_output_dir.as_deref()?;
+        let log_path = format!("{}/tapisjob.out", exec_output_dir.trim_end_matches('/'));
+        let normalized_path = log_path.trim_start_matches('/');
+        let base = config.base_path.trim_end_matches('/');
+        let endpoint = format!("{}/files/content/{}/{}", base, exec_system_id, normalized_path);
+        let server_ready_marker = "Server ready to accept requests";
+
+        for page in 1..=5 {
+            let mut req_builder = config.client.request(reqwest::Method::GET, endpoint.as_str());
+            req_builder = req_builder.header("more", page.to_string());
+            if let Some(ref api_key) = config.api_key {
+                let token = match api_key.prefix {
+                    Some(ref prefix) => format!("{} {}", prefix, api_key.key),
+                    None => api_key.key.clone(),
+                };
+                req_builder = req_builder.header("X-Tapis-Token", token);
+            }
+
+            let request = req_builder.build().ok()?;
+            let response = config.client.execute(request).await.ok()?;
+            if !response.status().is_success() {
+                return None;
+            }
+            let log_text = response.text().await.ok()?;
+
+            if let Some(access) = Self::parse_access_information(&log_text) {
+                return Some(access);
+            }
+            if log_text.contains(server_ready_marker) {
+                return None;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+
+        None
+    }
+
+    async fn running_connection_fields(
+        &self,
+        config: &configuration::Configuration,
+        status: Option<&str>,
+        job_uuid: &str,
+        job: Option<&models::Job>,
+    ) -> (Option<String>, Option<String>) {
+        if status != Some("RUNNING") {
+            return (None, None);
+        }
+
+        let mut full_job = job.cloned();
+        let needs_full_job = full_job
+            .as_ref()
+            .map(|j| j.exec_system_id.is_none() || j.exec_system_output_dir.is_none())
+            .unwrap_or(true);
+
+        if needs_full_job {
+            if let Ok(resp) = jobs_api::get_job(config, job_uuid).await {
+                full_job = resp.result.map(|j| *j);
+            }
+        }
+
+        if let Some(job_for_logs) = full_job.as_ref() {
+            if let Some((hpc_url, flexserv_token)) =
+                self.fetch_running_access_from_logs(config, job_for_logs).await
+            {
+                return (Some(hpc_url), Some(flexserv_token));
+            }
+        }
+
+        (None, None)
+    }
 }
 
 impl FlexServDeployment for FlexServHPCDeployment {
@@ -204,21 +318,23 @@ impl FlexServDeployment for FlexServHPCDeployment {
         let resp = jobs_api::submit_job(&config, req)
             .await
             .map_err(Self::map_jobs_error)?;
-        let job = resp.result;
+        let job = resp.result.map(|j| *j);
         let job_uuid = job
             .as_ref()
             .and_then(|j| j.uuid.clone())
             .unwrap_or_default();
         self.job_uuid = Some(job_uuid.clone());
         let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
+        let (hpc_url, flexserv_token) = self
+            .running_connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
+            .await;
 
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.clone(),
             status,
-            job_info: format!("job_uuid={}; response={:#?}", job_uuid, job),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
+            job,
+            hpc_url,
+            flexserv_token,
         })
     }
 
@@ -228,40 +344,38 @@ impl FlexServDeployment for FlexServHPCDeployment {
         let resp = jobs_api::resubmit_job(&config, prior_uuid, None)
             .await
             .map_err(Self::map_jobs_error)?;
-        let job = resp.result;
+        let job = resp.result.map(|j| *j);
         let job_uuid = job
             .as_ref()
             .and_then(|j| j.uuid.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| prior_uuid.to_string());
         let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
+        let (hpc_url, flexserv_token) = self
+            .running_connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
+            .await;
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.clone(),
             status,
-            job_info: format!(
-                "job_uuid={} (resubmitted from {}); response={:#?}",
-                job_uuid, prior_uuid, job
-            ),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
+            job,
+            hpc_url,
+            flexserv_token,
         })
     }
 
     async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
         let config = self.jobs_config()?;
         let job_uuid = self.require_job_uuid()?;
-        let resp = jobs_api::cancel_job(&config, job_uuid, None)
+        let _resp = jobs_api::cancel_job(&config, job_uuid, None)
             .await
             .map_err(Self::map_jobs_error)?;
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.to_string(),
             // `JobCancelDisplay` has no lifecycle status; avoid a follow-up GET that could fail silently.
             status: None,
-            job_info: format!("canceled {}; response={:#?}", job_uuid, resp.result),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
+            job: None,
+            hpc_url: None,
+            flexserv_token: None,
         })
     }
 
@@ -279,16 +393,20 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .await
             .map_err(Self::map_jobs_error)?;
         let status = status_resp.result.as_ref().and_then(|r| r.status.clone());
+        let (hpc_url, flexserv_token) = self
+            .running_connection_fields(
+                &config,
+                status.as_deref(),
+                job_uuid,
+                full_resp.result.as_deref(),
+            )
+            .await;
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.to_string(),
             status,
-            job_info: format!(
-                "status={:#?}\njob={:#?}",
-                status_resp.result, full_resp.result
-            ),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
+            job: full_resp.result.map(|j| *j),
+            hpc_url,
+            flexserv_token,
         })
     }
 }
@@ -322,7 +440,10 @@ mod tests {
                 "TACC-ACI-CIC",
             ),
         );
-        assert_eq!(deployment.server.tapis_user, "testuser");
+        assert_eq!(
+            deployment.server.as_ref().map(|s| s.tapis_user.as_str()),
+            Some("testuser")
+        );
         assert_eq!(deployment.tapis_token, "test-token");
         assert_eq!(
             deployment.options.as_ref().unwrap().exec_system_id,
