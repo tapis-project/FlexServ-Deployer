@@ -1,6 +1,6 @@
 ## FlexServ Deployer
 
-Rust library for deploying FlexServ model servers onto Tapis Pods (and, in the future, HPC via Jobs).
+Rust library for deploying FlexServ model servers onto Tapis Pods and HPC via Tapis Jobs.
 
 The **library** is the main product. The Actix-web binary is a thin wrapper and intentionally minimal.
 
@@ -26,7 +26,10 @@ The **library** is the main product. The Actix-web binary is a thin wrapper and 
 - **Deployment module** (`deployment/mod.rs`, `deployment/pod.rs`, `deployment/hpc.rs`)
   - `FlexServDeployment` trait: async `create/start/stop/terminate/monitor`
   - `FlexServPodDeployment` with `PodDeploymentOptions`
-  - `FlexServHPCDeployment` (methods currently `todo!()`)
+  - `FlexServHPCDeployment` with `HpcDeploymentOptions`
+    - `new(server, tapis_token, options)` for job submission
+    - `from_existing(tapis_token, job_uuid)` for existing jobs
+    - `job_status()` helper for lightweight status polling
   - `DeploymentResult` and `DeploymentError`
 
 ---
@@ -171,6 +174,65 @@ deployment.terminate().await?;
 
 All methods return `Result<DeploymentResult, DeploymentError>`.
 
+### HPC deployments (Tapis Jobs)
+
+For HPC, use `FlexServHPCDeployment` with `HpcDeploymentOptions` to submit and manage jobs:
+
+```rust
+use flexserv_deployer::{
+    Backend, FlexServDeployment, FlexServHPCDeployment, FlexServInstance, HpcDeploymentOptions,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tenant_url = std::env::var("TAPIS_TENANT_URL")
+        .unwrap_or_else(|_| "https://public.tapis.io".to_string());
+    let tapis_user = std::env::var("TAPIS_USER").expect("TAPIS_USER is required");
+    let tapis_token = std::env::var("TAPIS_TOKEN").expect("TAPIS_TOKEN is required");
+
+    let server = FlexServInstance::new(
+        tenant_url,
+        tapis_user,
+        "Qwen/Qwen3.5-0.8B".to_string(),
+        None,
+        std::env::var("HF_TOKEN").ok(),
+        None,
+        Backend::Transformers { command: vec![] },
+    );
+
+    let options = HpcDeploymentOptions::new(
+        std::env::var("TAPIS_HPC_APP_ID")?,
+        std::env::var("TAPIS_HPC_APP_VERSION")?,
+        std::env::var("TAPIS_HPC_EXEC_SYSTEM_ID")?,
+        std::env::var("TAPIS_HPC_EXEC_SYSTEM_LOGICAL_QUEUE")?,
+        std::env::var("TAPIS_HPC_MAX_MINUTES")?.parse::<i32>()?,
+        std::env::var("TAPIS_HPC_ALLOCATION")?,
+    );
+
+    let mut deployment = FlexServHPCDeployment::new(server, tapis_token, options);
+    let created = deployment.create().await?;
+    println!("Submitted: {created:#?}");
+
+    let monitored = deployment.monitor().await?;
+    println!("Monitor: {monitored:#?}");
+    Ok(())
+}
+```
+
+To manage an existing HPC job UUID:
+
+```rust
+use flexserv_deployer::{FlexServDeployment, FlexServHPCDeployment};
+
+let mut deployment = FlexServHPCDeployment::from_existing(tapis_token, job_uuid);
+deployment.tenant_url = Some(tenant_url); // required when using from_existing
+
+let status = deployment.job_status().await?;
+let resubmitted = deployment.start().await?; // resubmit from prior UUID
+let cancelled = deployment.stop().await?;    // cancel current job
+let snapshot = deployment.monitor().await?;  // status + full job details
+```
+
 ### Calling the pod HTTP API
 
 Once you have:
@@ -247,6 +309,12 @@ Examples are in `examples/`:
   - `TAPIS_TENANT_URL`, `TAPIS_TOKEN`
   - `FLEXSERV_MODEL_ID` (default `no-model-yet`)
   - optional `HF_TOKEN`
+- `hpc_create.rs` – submit and monitor an HPC FlexServ job.
+- `hpc_poll_status.rs` – poll job status via `job_status()` then call `monitor()`.
+- `hpc_resubmit_job.rs` – resubmit an existing job UUID via `start()`.
+- `hpc_cancel_job.rs` – cancel an existing job via `stop()`.
+- `pod_monitor.rs` – monitor an existing pod.
+- `pod_start_stop.rs` – start then stop an existing pod.
 - `terminate_pod.rs` – terminate an existing pod and volume (`POD_ID`, `VOLUME_ID`).
 - `call_pod.rs` – call a running pod’s HTTP API.
 - `hash_demo.rs` – demonstrate deployment hash generation.
@@ -267,5 +335,5 @@ cargo run --example create_pod -- --nocapture
 
 - Pods expect models pre-populated on the volume under `/app/models/<model_dir_name>`.  
   The deployer does **not** download models at pod startup.
-- `FlexServHPCDeployment` is not implemented yet (`todo!()`); do not use it in production.
+- For `FlexServHPCDeployment::from_existing`, set `deployment.tenant_url` before calling `job_status/start/stop/monitor`.
 - An empty `flexserv_secret`/`FLEXSERV_SECRET` is allowed but insecure; production deployments should use a strong secret.
