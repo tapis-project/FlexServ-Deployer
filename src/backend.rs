@@ -9,7 +9,7 @@ use crate::server::FlexServInstance;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use tapis_sdk::jobs::models::{JobArgSpec, JobParameterSet, KeyValuePair};
+use tapis_jobs::models::{JobArgSpec, JobParameterSet, KeyValuePair};
 
 /// Supported ML inference backends.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -514,8 +514,10 @@ impl BackendParameterSetBuilder for VLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
-        let mut params =
-            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        let mut params = build_hpc_from_options(
+            &filter_hpc_options(&self.options),
+            &self.environment_variables,
+        );
         apply_flexserv_hpc_contract(&mut params, server);
         params
     }
@@ -584,8 +586,10 @@ impl BackendParameterSetBuilder for SGLangParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
-        let mut params =
-            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        let mut params = build_hpc_from_options(
+            &filter_hpc_options(&self.options),
+            &self.environment_variables,
+        );
         apply_flexserv_hpc_contract(&mut params, server);
         params
     }
@@ -644,8 +648,10 @@ impl BackendParameterSetBuilder for TrtLlmParameterSetBuilder {
     }
 
     fn build_params_for_hpc(&self, server: &FlexServInstance) -> HPCParameterSet {
-        let mut params =
-            build_hpc_from_options(&filter_hpc_options(&self.options), &self.environment_variables);
+        let mut params = build_hpc_from_options(
+            &filter_hpc_options(&self.options),
+            &self.environment_variables,
+        );
         apply_flexserv_hpc_contract(&mut params, server);
         params
     }
@@ -842,25 +848,35 @@ mod tests {
         let env_vars = hpc_params.env_variables.as_ref().unwrap();
 
         // Backend-specific defaults
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16")));
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16"))
+        );
         assert!(app_args.iter().any(|arg| arg.arg.as_deref()
             == Some("--default-embedding-model sentence-transformers/all-MiniLM-L6-v2")));
 
         // FlexServ contract args now live here, not in build_submit_request
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--model-name Qwen/Qwen3.5-0.8B")));
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--enable-https")));
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--flexserv-port 8000")));
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--is-distributed 0")));
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--model-name Qwen/Qwen3.5-0.8B"))
+        );
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--enable-https"))
+        );
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--flexserv-port 8000"))
+        );
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--is-distributed 0"))
+        );
         assert!(env_vars.iter().any(|env| {
             env.key.as_deref() == Some("FLEXSERV_BACKEND_TYPE")
                 && env.value.as_deref() == Some("transformers")
@@ -888,12 +904,16 @@ mod tests {
             .build_params_for_hpc(&server);
         let app_args = hpc_params.app_args.as_ref().unwrap();
 
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--dtype float16")));
-        assert!(!app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16")));
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--dtype float16"))
+        );
+        assert!(
+            !app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--dtype bfloat16"))
+        );
     }
 
     // Helper: collect all arg strings from an HPCParameterSet.
@@ -901,11 +921,7 @@ mod tests {
         params
             .app_args
             .as_ref()
-            .map(|args| {
-                args.iter()
-                    .filter_map(|a| a.arg.clone())
-                    .collect()
-            })
+            .map(|args| args.iter().filter_map(|a| a.arg.clone()).collect())
             .unwrap_or_default()
     }
 
@@ -1062,9 +1078,11 @@ mod tests {
         let app_args = hpc_params.app_args.as_ref().unwrap();
         let env_vars = hpc_params.env_variables.as_ref().unwrap();
 
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--tensor-parallel-size 4")));
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--tensor-parallel-size 4"))
+        );
         assert!(env_vars.iter().any(|env| {
             env.key.as_deref() == Some("CUDA_VISIBLE_DEVICES")
                 && env.value.as_deref() == Some("0,1,2,3")

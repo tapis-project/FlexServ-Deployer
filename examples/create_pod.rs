@@ -72,6 +72,7 @@ async fn main() -> Result<(), DeploymentError> {
             pod_id,
             volume_id,
             pod_url,
+            status,
             pod_info,
             volume_info: _,
             tapis_user,
@@ -84,6 +85,11 @@ async fn main() -> Result<(), DeploymentError> {
                 pod_id
             );
             println!("  volume_id:  {}", volume_id);
+            if let Some(ref status) = status {
+                println!("  status:     {}", status);
+            } else {
+                println!("  status:     (not yet available)");
+            }
             if let Some(ref url) = pod_url {
                 println!(
                     "  pod_url:    {}  (use for inference or health checks)",

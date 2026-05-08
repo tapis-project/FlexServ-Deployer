@@ -2,11 +2,11 @@ use super::{DeploymentError, DeploymentResult, FlexServDeployment};
 use crate::backend::Backend;
 use crate::server::{FlexServInstance, ModelConfig, TapisConfig, ValidationError};
 use reqwest::header::{HeaderMap, HeaderValue};
-use tapis_sdk::pods::apis;
-use tapis_sdk::pods::apis::configuration;
-use tapis_sdk::pods::apis::pods_api;
-use tapis_sdk::pods::apis::volumes_api;
-use tapis_sdk::pods::models;
+use tapis_pods::apis;
+use tapis_pods::apis::configuration;
+use tapis_pods::apis::pods_api;
+use tapis_pods::apis::volumes_api;
+use tapis_pods::models;
 
 /// Options for pod-based deployment (volume size, image, resources, secrets, deployment id).
 /// Omitted fields use defaults; secrets fall back to env (`FLEXSERV_SECRET`, `HF_TOKEN`) when `None`.
@@ -166,7 +166,7 @@ impl FlexServPodDeployment {
     }
 
     /// Extract pod URL from API response (networking.default.url).
-    fn _pod_url_from_result(result: &tapis_sdk::pods::models::PodResponseModel) -> Option<String> {
+    fn _pod_url_from_result(result: &tapis_pods::models::PodResponseModel) -> Option<String> {
         result
             .networking
             .as_ref()
