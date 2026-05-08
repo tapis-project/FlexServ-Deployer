@@ -221,11 +221,11 @@ impl FlexServHPCDeployment {
 
     fn parse_access_information(log_text: &str) -> Option<(String, String)> {
         for line in log_text.lines() {
-            if !line.contains("FlexServ address:") || !line.contains("TAP token:") {
+            if !line.contains("FlexServ address:") || !line.contains("FlexServ token:") {
                 continue;
             }
             let rest = line.split_once("FlexServ address:")?.1.trim();
-            let (addr_part, token_part) = rest.split_once("TAP token:")?;
+            let (addr_part, token_part) = rest.split_once("FlexServ token:")?;
             let hpc_url = addr_part.trim().to_string();
             let flexserv_token = token_part.trim().to_string();
             if !hpc_url.is_empty() && !flexserv_token.is_empty() {
