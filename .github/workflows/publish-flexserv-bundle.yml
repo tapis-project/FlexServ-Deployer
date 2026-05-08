@@ -9,7 +9,7 @@ on:
         default: true
         type: boolean
       tag:
-        description: "Optional release tag (for example: tapis-flexserv-1.3.0)"
+        description: "Optional release tag (for example: tapis-flexserv-1.5.0)"
         required: false
         type: string
 

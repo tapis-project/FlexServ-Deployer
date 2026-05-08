@@ -1,5 +1,4 @@
 use actix_web::{middleware, web, App, HttpResponse, HttpServer, Responder};
-use flexserv_deployer::{Backend, FlexServInstance, FlexServPodDeployment};
 
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({

@@ -1,104 +1,339 @@
-# FlexServ Deployer
+## FlexServ Deployer
 
-A Rust library and web server for deploying FlexServ on Tapis Pods or HPC systems via Tapis Jobs, with various backends (Transformers, vLLM, SGLang, TRT-LLM).
+Rust library for deploying FlexServ model servers onto Tapis Pods and HPC via Tapis Jobs.
 
+The **library** is the main product. The Actix-web binary is a thin wrapper and intentionally minimal.
 
-## Library Components
+---
 
-### Backend Module (`backend.rs`)
-- **Backend enum**: Supports Transformers, vLLM, SGLang, and TRT-LLM
-- **BackendParameters**: Flexible configuration for backend-specific settings
-- **Parameter Builders**: Type-safe builders for each backend:
-  - `TransformersParametersBuilder`
-  - `VLlmParametersBuilder`
-  - `SGLangParametersBuilder`
-  - `TrtLlmParametersBuilder`
+## Library Overview
 
-### Server Module (`server.rs`)
-- **FlexServInstance**: Server instance configuration with tenant URL, user, model info, and backend
+### Core modules
 
-### Deployment Module (`deployment.rs`)
-- **FlexServDeployment trait**: Common interface for deployment operations
-- **FlexServPodDeployment**: Pod-based deployment implementation
-- **FlexServHPCDeployment**: HPC-based deployment implementation
-- **DeploymentResult & DeploymentError**: Result types for deployment operations
+- **Backend module** (`backend.rs`)
+  - `Backend` enum: `Transformers`, `VLlm`, `SGLang`, `TrtLlm`
+  - `BackendParameterSet` (command + params + env)
+  - `BuildBackendParameterSet` trait:
+    - `build_params_for_pod(&self, server)`
+    - `build_params_for_hpc(&self, server)`
+  - Per-backend builders: `TransformersParameterSetBuilder`, `VLlmParameterSetBuilder`, `SGLangParameterSetBuilder`, `TrtLlmParameterSetBuilder`
 
-### Binary (`main.rs`)
-A web server built with Actix-web that exposes REST APIs:
-- Runs on `127.0.0.1:8080`
+- **Server module** (`server.rs`)
+  - `FlexServInstance`: tenant URL, user, model id, optional revision/HF token, backend
+  - `FlexServInstanceBuilder`: validated builder
+  - `ModelConfig`, `TapisConfig`, `ValidationError`
 
-## Building
+- **Deployment module** (`deployment/mod.rs`, `deployment/pod.rs`, `deployment/hpc.rs`)
+  - `FlexServDeployment` trait: async `create/start/stop/terminate/monitor`
+  - `FlexServPodDeployment` with `PodDeploymentOptions`
+  - `FlexServHPCDeployment` with `HpcDeploymentOptions`
+    - `new(server, tapis_token, options)` for job submission
+    - `from_existing(tapis_token, job_uuid)` for existing jobs
+    - `job_status()` helper for lightweight status polling
+  - `DeploymentResult` and `DeploymentError`
 
-### Build the library
-```bash
-cargo build --lib
-```
+---
 
-### Build the server binary
-```bash
-cargo build --bin flexserv-deployer-server
-```
+## Using the Library
 
-### Build everything
-```bash
-cargo build
-```
+### Add dependency
 
-## Running
+In your project’s `Cargo.toml`:
 
-### Run the web server
-```bash
-cargo run --bin flexserv-deployer-server
-```
-
-The server will start on `http://127.0.0.1:8080`
-
-## Testing
-
-### Run all tests (unit + integration)
-```bash
-cargo test
-```
-
-### Run only unit tests
-```bash
-cargo test --lib
-```
-
-### Run only integration tests
-```bash
-cargo test --test integration_test
-```
-
-### Run tests with output
-```bash
-cargo test -- --nocapture
-```
-
-<!-- ## API Endpoints
-
-- `GET /search` - Search for models
-- `POST /info` - Get model information -->
-
-## Development
-
-### Using the library in other projects
-Add to your `Cargo.toml`:
 ```toml
 [dependencies]
-flexserv-deployer = { path = "../FlexServ-deployer" }
+flexserv-deployer = { path = "../FlexServ-Deployer" }  # adjust path as needed
 ```
 
-Then import:
+### Basic imports
+
 ```rust
-use flexserv_deployer::{model, deployment};
+use flexserv_deployer::{
+    Backend,
+    DeploymentError,
+    DeploymentResult,
+    FlexServDeployment,
+    FlexServInstance,
+    FlexServPodDeployment,
+    PodDeploymentOptions,
+};
 ```
 
-## Dependencies
+### Quickstart: create a pod (async)
 
-- **actix-web**: Web framework
-- **tokio**: Async runtime
-- **serde**: Serialization/deserialization
-- **reqwest**: HTTP client
-- **tapis-sdk**: Tapis API integration
-- **hf-hub**: HuggingFace Hub integration
+This example:
+- builds a `FlexServInstance`
+- wraps it in `FlexServPodDeployment`
+- calls `create()` to create a volume and pod
+
+```rust
+use flexserv_deployer::{
+    Backend, DeploymentError, DeploymentResult, FlexServDeployment,
+    FlexServInstance, FlexServPodDeployment,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), DeploymentError> {
+    env_logger::init();
+
+    let tenant_url = std::env::var("TAPIS_TENANT_URL").expect("TAPIS_TENANT_URL");
+    let tapis_token = std::env::var("TAPIS_TOKEN").expect("TAPIS_TOKEN");
+
+    // Model must already exist on the attached volume at /app/models/<model_dir_name>.
+    let model_id = std::env::var("FLEXSERV_MODEL_ID")
+        .unwrap_or_else(|_| "no-model-yet".to_string());
+
+    let server = FlexServInstance::new(
+        tenant_url,
+        "your_tapis_username".to_string(),
+        model_id,
+        None,                         // model_revision
+        std::env::var("HF_TOKEN").ok(), // optional HF token
+        None,                         // default_embedding_model
+        Backend::Transformers {
+            command: vec!["python".to_string()],
+        },
+    );
+
+    let mut deployment = FlexServPodDeployment::new(server, tapis_token);
+    let result = deployment.create().await?;
+
+    match result {
+        DeploymentResult::PodResult {
+            pod_id,
+            volume_id,
+            pod_url,
+            tapis_user,
+            tapis_tenant,
+            model_id,
+            ..
+        } => {
+            println!("Pod created: {}", pod_id);
+            println!("Volume: {}", volume_id);
+            println!("Tapis user: {}", tapis_user);
+            println!("Tapis tenant: {}", tapis_tenant);
+            if let Some(url) = pod_url {
+                println!("Pod URL (for inference): {}", url);
+            }
+            let auth_token = model_id.replace('/', "_");
+            println!("Auth token for pod: {}", auth_token);
+        }
+        DeploymentResult::HPCResult { .. } => unreachable!("pod deployment returns PodResult"),
+    }
+
+    Ok(())
+}
+```
+
+### Pod options
+
+Use `PodDeploymentOptions` with `with_options`:
+
+```rust
+let server = FlexServInstance::new(
+    tenant_url,
+    "your_tapis_username".to_string(),
+    "openai-community/gpt2".to_string(),
+    None,
+    std::env::var("HF_TOKEN").ok(),
+    None,
+    Backend::Transformers { command: vec!["python".to_string()] },
+);
+
+let options = PodDeploymentOptions {
+    deployment_id: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+    volume_size_mb: Some(20 * 1024),
+    image: Some("tapis/flexserv:1.0".to_string()),
+    cpu_request: Some(2000),
+    mem_limit_mb: Some(16384),
+    gpus: Some(0),
+    flexserv_secret: Some("mysecret-".to_string()),
+    ..Default::default()
+};
+
+let mut deployment = FlexServPodDeployment::with_options(server, tapis_token, options);
+let result = deployment.create().await?;
+```
+
+### Manage an existing pod
+
+```rust
+let server = FlexServInstance::new(/* same config as create */);
+let deployment = FlexServPodDeployment::from_existing(
+    server,
+    tapis_token,
+    pod_id,
+    volume_id,
+);
+
+deployment.start().await?;
+deployment.monitor().await?;
+deployment.stop().await?;
+deployment.terminate().await?;
+```
+
+All methods return `Result<DeploymentResult, DeploymentError>`.
+
+### HPC deployments (Tapis Jobs)
+
+For HPC, use `FlexServHPCDeployment` with `HpcDeploymentOptions` to submit and manage jobs:
+
+```rust
+use flexserv_deployer::{
+    Backend, FlexServDeployment, FlexServHPCDeployment, FlexServInstance, HpcDeploymentOptions,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tenant_url = std::env::var("TAPIS_TENANT_URL")
+        .unwrap_or_else(|_| "https://public.tapis.io".to_string());
+    let tapis_user = std::env::var("TAPIS_USER").expect("TAPIS_USER is required");
+    let tapis_token = std::env::var("TAPIS_TOKEN").expect("TAPIS_TOKEN is required");
+
+    let server = FlexServInstance::new(
+        tenant_url,
+        tapis_user,
+        "Qwen/Qwen3.5-0.8B".to_string(),
+        None,
+        std::env::var("HF_TOKEN").ok(),
+        None,
+        Backend::Transformers { command: vec![] },
+    );
+
+    let options = HpcDeploymentOptions::new(
+        std::env::var("TAPIS_HPC_APP_ID")?,
+        std::env::var("TAPIS_HPC_APP_VERSION")?,
+        std::env::var("TAPIS_HPC_EXEC_SYSTEM_ID")?,
+        std::env::var("TAPIS_HPC_EXEC_SYSTEM_LOGICAL_QUEUE")?,
+        std::env::var("TAPIS_HPC_MAX_MINUTES")?.parse::<i32>()?,
+        std::env::var("TAPIS_HPC_ALLOCATION")?,
+    );
+
+    let mut deployment = FlexServHPCDeployment::new(server, tapis_token, options);
+    let created = deployment.create().await?;
+    println!("Submitted: {created:#?}");
+
+    let monitored = deployment.monitor().await?;
+    println!("Monitor: {monitored:#?}");
+    Ok(())
+}
+```
+
+To manage an existing HPC job UUID:
+
+```rust
+use flexserv_deployer::{FlexServDeployment, FlexServHPCDeployment};
+
+let mut deployment = FlexServHPCDeployment::from_existing(tapis_token, job_uuid);
+deployment.tenant_url = Some(tenant_url); // required when using from_existing
+
+let status = deployment.job_status().await?;
+let resubmitted = deployment.start().await?; // resubmit from prior UUID
+let cancelled = deployment.stop().await?;    // cancel current job
+let snapshot = deployment.monitor().await?;  // status + full job details
+```
+
+### Calling the pod HTTP API
+
+Once you have:
+- `pod_url` from `DeploymentResult::PodResult`
+- `auth_token = model_id.replace('/', "_")`
+
+Use any HTTP client (e.g. `reqwest`) to call the pod:
+
+- Health: `GET {pod_url}/v1/flexserv/health`
+- Models: `GET {pod_url}/v1/models`
+- Completions/Chat: `POST {pod_url}/v1/completions` / `/v1/chat/completions`
+
+Headers:
+- `Authorization: Bearer <auth_token>`
+
+---
+
+## Running Tests
+
+There are two main categories:
+
+- **Unit tests** – internal logic (backend, server, deployment).
+- **Integration tests** – call real TAPIS Pods APIs.
+
+### Helper script: `run-tests.sh`
+
+At the repo root:
+
+```bash
+# Unit tests only
+./run-tests.sh unit
+
+# All tests (unit + integration)
+./run-tests.sh all
+
+# Single integration tests (pass parameters instead of exporting envs)
+./run-tests.sh create    https://tacc.tapis.io "<TAPIS_TOKEN>"
+./run-tests.sh start     https://tacc.tapis.io "<TAPIS_TOKEN>" "<your-pod-id>" "<your-volume-id>"
+./run-tests.sh stop      https://tacc.tapis.io "<TAPIS_TOKEN>" "<your-pod-id>" "<your-volume-id>"
+./run-tests.sh monitor   https://tacc.tapis.io "<TAPIS_TOKEN>" "<your-pod-id>" ["<your-volume-id>"]
+./run-tests.sh terminate https://tacc.tapis.io "<TAPIS_TOKEN>" "<your-pod-id>" "<your-volume-id>"
+```
+
+If no argument is provided, the script defaults to `unit`.
+
+### Manual commands
+
+```bash
+# Unit tests
+cargo test --lib
+
+# All tests (unit + integration)
+cargo test
+
+# Run a single integration test with output
+TAPIS_TENANT_URL=https://tacc.tapis.io TAPIS_TOKEN=<jwt> \
+  cargo test --test pod_create_integration -- --nocapture
+```
+
+### Env vars for integration tests
+
+The Rust integration tests under `tests/` still **read env vars** (`TAPIS_TENANT_URL`, `TAPIS_TOKEN`, `POD_ID`, `VOLUME_ID`, etc.) and **skip themselves** if they are missing.
+
+`run-tests.sh` simply maps its CLI arguments into those env vars for you.  
+You can also bypass the script and export the env vars manually if you prefer.
+
+---
+
+## Examples
+
+Examples are in `examples/`:
+
+- `create_pod.rs` – create volume + pod using env:
+  - `TAPIS_TENANT_URL`, `TAPIS_TOKEN`
+  - `FLEXSERV_MODEL_ID` (default `no-model-yet`)
+  - optional `HF_TOKEN`
+- `hpc_create.rs` – submit and monitor an HPC FlexServ job.
+- `hpc_poll_status.rs` – poll job status via `job_status()` then call `monitor()`.
+- `hpc_resubmit_job.rs` – resubmit an existing job UUID via `start()`.
+- `hpc_cancel_job.rs` – cancel an existing job via `stop()`.
+- `pod_monitor.rs` – monitor an existing pod.
+- `pod_start_stop.rs` – start then stop an existing pod.
+- `terminate_pod.rs` – terminate an existing pod and volume (`POD_ID`, `VOLUME_ID`).
+- `call_pod.rs` – call a running pod’s HTTP API.
+- `hash_demo.rs` – demonstrate deployment hash generation.
+
+Example:
+
+```bash
+export TAPIS_TENANT_URL=https://tacc.tapis.io
+export TAPIS_TOKEN=<your-jwt>
+export FLEXSERV_MODEL_ID=openai-community/gpt2
+
+cargo run --example create_pod -- --nocapture
+```
+
+---
+
+## Notes and Limitations
+
+- Pods expect models pre-populated on the volume under `/app/models/<model_dir_name>`.  
+  The deployer does **not** download models at pod startup.
+- For `FlexServHPCDeployment::from_existing`, set `deployment.tenant_url` before calling `job_status/start/stop/monitor`.
+- An empty `flexserv_secret`/`FLEXSERV_SECRET` is allowed but insecure; production deployments should use a strong secret.

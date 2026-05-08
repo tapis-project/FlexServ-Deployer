@@ -7,7 +7,7 @@ set -e
 # Parse arguments (supports both named args in any order and legacy positional args)
 print_usage() {
     echo "Usage (named, order-independent):"
-    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--device <device>] [--dtype <dtype>] [--attn-implementation <impl>] [--model-timeout <seconds>] [--quantization <mode>] [--enable-https]"
+    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--device <device>] [--dtype <dtype>] [--attn-implementation <impl>] [--model-timeout <seconds>] [--quantization <mode|bnb-4bit|bnb-8bit>] [--trust-remote-code <true|false>] [--continuous-batching <true|false>] [--enable-https]"
     echo "  $0 --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
@@ -22,6 +22,8 @@ print_usage() {
     echo "  attn / --attn-implementation    Attention implementation (default: sdpa)"
     echo "  model_timeout / --model-timeout Backend model timeout seconds (default: 86400)"
     echo "  quantization / --quantization   Quantization mode for backend (default: none)"
+    echo "  trust_remote_code / --trust-remote-code  Whether to trust remote code execution (default: false)"
+    echo "  continuous_batching / --continuous-batching  Whether to enable continuous batching (default: false)"
     echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
     echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
     echo "  enable_https / --enable-https   Whether to enable HTTPS (default: disabled)"
@@ -43,6 +45,9 @@ DTYPE="${FLEXSERV_DTYPE:-bfloat16}"
 ATTN_IMPLEMENTATION="${FLEXSERV_ATTN_IMPL:-sdpa}"
 MODEL_TIMEOUT="${FLEXSERV_MODEL_TIMEOUT:-86400}"
 QUANTIZATION="${FLEXSERV_QUANTIZATION:-none}"
+TRUST_REMOTE_CODE="${FLEXSERV_TRUST_REMOTE_CODE:-false}"
+CONTINUOUS_BATCHING="${FLEXSERV_CONTINUOUS_BATCHING:-false}"
+
 if [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -98,6 +103,14 @@ if [[ "$1" == -* ]]; then
                 QUANTIZATION="$2"
                 shift 2
             ;;
+            --trust-remote-code)
+                TRUST_REMOTE_CODE="$2"
+                shift 2
+            ;;
+            --continuous-batching)
+                CONTINUOUS_BATCHING="$2"
+                shift 2
+            ;;
             -h|--help)
                 print_usage
                 exit 0
@@ -110,7 +123,7 @@ if [[ "$1" == -* ]]; then
         esac
     done
 else
-    if [ "$#" -lt 1 ] || [ "$#" -gt 7 ]; then
+    if [ "$#" -lt 1 ] || [ "$#" -gt 9 ]; then
         print_usage
         exit 1
     fi
@@ -122,6 +135,8 @@ else
     IS_DISTRIBUTED=${5:-0}
     ENABLE_HTTPS=${6:-0}
     QUANTIZATION=${7:-${QUANTIZATION}}
+    TRUST_REMOTE_CODE=${8:-${TRUST_REMOTE_CODE}}
+    CONTINUOUS_BATCHING=${9:-${CONTINUOUS_BATCHING}}
 fi
 
 HUGGINGFACE_TOKEN=${HF_TOKEN:-${HUGGINGFACE_TOKEN:-""}}
@@ -425,6 +440,17 @@ export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flex
 export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-/work/projects/aci/cic/apps/flexserv/patches/gateway}
 export APPLY_PATCH=${APPLY_PATCH:-0}
 
+BOOT_FLAGS=()
+
+if [[ "$TRUST_REMOTE_CODE" == "true" ]] || [[ "$TRUST_REMOTE_CODE" == "1" ]]; then
+    flag="--trust-remote-code"
+    BOOT_FLAGS+=("$flag")
+fi
+
+if [[ "$CONTINUOUS_BATCHING" == "true" ]] || [[ "$CONTINUOUS_BATCHING" == "1" ]]; then
+    flag="--continuous-batching"
+    BOOT_FLAGS+=("$flag")
+fi
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     echo "Launching FlexServ container in DISTRIBUTED mode..."
@@ -462,7 +488,8 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     --dtype ${DTYPE} \
     --attn-implementation ${ATTN_IMPLEMENTATION} \
     --model-timeout ${MODEL_TIMEOUT} \
-    --quantization ${QUANTIZATION}
+    --quantization ${QUANTIZATION} \
+    "${BOOT_FLAGS[@]}"
 else
     echo "Launching FlexServ container in SINGLE-NODE mode..."
     APPTAINER_GATEWAY_TLS_ENVS=()
@@ -505,7 +532,8 @@ else
     --dtype ${DTYPE} \
     --model-timeout ${MODEL_TIMEOUT} \
     --quantization ${QUANTIZATION} \
-    --attn-implementation ${ATTN_IMPLEMENTATION}
+    --attn-implementation ${ATTN_IMPLEMENTATION} \
+    "${BOOT_FLAGS[@]}"
 fi
 # If we reach here, container exited normally
 echo "FlexServ container stopped"
