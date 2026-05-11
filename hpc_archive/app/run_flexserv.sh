@@ -365,8 +365,6 @@ echo "======================================================================"
 echo "ACCESS INFORMATION"
 echo "======================================================================"
 echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  FlexServ token: ${FLEXSERV_SECRET}"
-echo "Anyone on the TACC network or with VPN can access this URL directly!"
-echo "No additional SSH tunneling required from client machines."
 echo "======================================================================"
 echo ""
 
