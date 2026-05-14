@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::fmt;
-use tapis_sdk::jobs::models::Job;
+use tapis_jobs::models::Job;
 
 mod hpc;
 mod pod;
@@ -39,8 +39,7 @@ pub enum DeploymentResult {
         /// Optional endpoint metadata returned only when job is RUNNING.
         hpc_url: Option<String>,
         /// Optional token returned only when job is RUNNING.
-        flexserv_token: Option<String>
-
+        flexserv_token: Option<String>,
     },
 }
 

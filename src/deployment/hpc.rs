@@ -1,10 +1,10 @@
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
 use crate::server::FlexServInstance;
-use tokio::time::{sleep, Duration};
-use tapis_sdk::jobs::apis;
-use tapis_sdk::jobs::apis::configuration;
-use tapis_sdk::jobs::apis::jobs_api;
-use tapis_sdk::jobs::models;
+use tapis_jobs::apis;
+use tapis_jobs::apis::configuration;
+use tapis_jobs::apis::jobs_api;
+use tapis_jobs::models;
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug, Clone)]
 pub struct HpcDeploymentOptions {
@@ -132,22 +132,24 @@ impl FlexServHPCDeployment {
 
     /// `Job.status` from submit/resubmit responses (`Option<Status>`), as TAPIS API strings.
     fn job_status_from_record(job: &models::Job) -> Option<String> {
-        job.status.map(|s| match s {
-            models::job::Status::Pending => "PENDING",
-            models::job::Status::ProcessingInputs => "PROCESSING_INPUTS",
-            models::job::Status::StagingInputs => "STAGING_INPUTS",
-            models::job::Status::StagingJob => "STAGING_JOB",
-            models::job::Status::SubmittingJob => "SUBMITTING_JOB",
-            models::job::Status::Queued => "QUEUED",
-            models::job::Status::Running => "RUNNING",
-            models::job::Status::Archiving => "ARCHIVING",
-            models::job::Status::Blocked => "BLOCKED",
-            models::job::Status::Paused => "PAUSED",
-            models::job::Status::Finished => "FINISHED",
-            models::job::Status::Cancelled => "CANCELLED",
-            models::job::Status::Failed => "FAILED",
-        }
-        .to_string())
+        job.status.map(|s| {
+            match s {
+                models::job::Status::Pending => "PENDING",
+                models::job::Status::ProcessingInputs => "PROCESSING_INPUTS",
+                models::job::Status::StagingInputs => "STAGING_INPUTS",
+                models::job::Status::StagingJob => "STAGING_JOB",
+                models::job::Status::SubmittingJob => "SUBMITTING_JOB",
+                models::job::Status::Queued => "QUEUED",
+                models::job::Status::Running => "RUNNING",
+                models::job::Status::Archiving => "ARCHIVING",
+                models::job::Status::Blocked => "BLOCKED",
+                models::job::Status::Paused => "PAUSED",
+                models::job::Status::Finished => "FINISHED",
+                models::job::Status::Cancelled => "CANCELLED",
+                models::job::Status::Failed => "FAILED",
+            }
+            .to_string()
+        })
     }
 
     fn build_submit_request(&self) -> Result<models::ReqSubmitJob, DeploymentError> {
@@ -219,11 +221,11 @@ impl FlexServHPCDeployment {
 
     fn parse_access_information(log_text: &str) -> Option<(String, String)> {
         for line in log_text.lines() {
-            if !line.contains("FlexServ address:") || !line.contains("TAP token:") {
+            if !line.contains("FlexServ address:") || !line.contains("FlexServ token:") {
                 continue;
             }
             let rest = line.split_once("FlexServ address:")?.1.trim();
-            let (addr_part, token_part) = rest.split_once("TAP token:")?;
+            let (addr_part, token_part) = rest.split_once("FlexServ token:")?;
             let hpc_url = addr_part.trim().to_string();
             let flexserv_token = token_part.trim().to_string();
             if !hpc_url.is_empty() && !flexserv_token.is_empty() {
@@ -243,11 +245,16 @@ impl FlexServHPCDeployment {
         let log_path = format!("{}/tapisjob.out", exec_output_dir.trim_end_matches('/'));
         let normalized_path = log_path.trim_start_matches('/');
         let base = config.base_path.trim_end_matches('/');
-        let endpoint = format!("{}/files/content/{}/{}", base, exec_system_id, normalized_path);
+        let endpoint = format!(
+            "{}/files/content/{}/{}",
+            base, exec_system_id, normalized_path
+        );
         let server_ready_marker = "Server ready to accept requests";
 
         for page in 1..=5 {
-            let mut req_builder = config.client.request(reqwest::Method::GET, endpoint.as_str());
+            let mut req_builder = config
+                .client
+                .request(reqwest::Method::GET, endpoint.as_str());
             req_builder = req_builder.header("more", page.to_string());
             if let Some(ref api_key) = config.api_key {
                 let token = match api_key.prefix {
@@ -300,8 +307,9 @@ impl FlexServHPCDeployment {
         }
 
         if let Some(job_for_logs) = full_job.as_ref() {
-            if let Some((hpc_url, flexserv_token)) =
-                self.fetch_running_access_from_logs(config, job_for_logs).await
+            if let Some((hpc_url, flexserv_token)) = self
+                .fetch_running_access_from_logs(config, job_for_logs)
+                .await
             {
                 return (Some(hpc_url), Some(flexserv_token));
             }
@@ -480,15 +488,21 @@ mod tests {
         let app_args = parameter_set.app_args.as_ref().unwrap();
         let env_vars = parameter_set.env_variables.as_ref().unwrap();
 
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--flexserv-port 8000")));
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--model-name Qwen/Qwen3.5-0.8B")));
-        assert!(app_args
-            .iter()
-            .any(|arg| arg.arg.as_deref() == Some("--enable-https")));
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--flexserv-port 8000"))
+        );
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--model-name Qwen/Qwen3.5-0.8B"))
+        );
+        assert!(
+            app_args
+                .iter()
+                .any(|arg| arg.arg.as_deref() == Some("--enable-https"))
+        );
         assert!(env_vars.iter().any(|env| {
             env.key.as_deref() == Some("FLEXSERV_BACKEND_TYPE")
                 && env.value.as_deref() == Some("transformers")
