@@ -1,6 +1,8 @@
 #!/bin/bash
 # FlexServ Runner Script for TACC HPC Environment
-# Usage: ./run_flexserv.sh <port> <secret>
+# Supports:
+#   1) normal single-node single-process mode through the gateway
+#   2) optional multi-node distributed mode if explicitly enabled
 
 set -e
 
@@ -11,11 +13,11 @@ print_usage() {
     echo "  $0 --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
-    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https] [quantization]"
+    echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https] [quantization] [trust_remote_code] [continuous_batching]"
     echo ""
     echo "Arguments:"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
-    echo "  secret / --secret               FlexServ auth secret (default: flexserv)"
+    echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
     echo "  model_name / --model-name       Default model name/path (default: Qwen/Qwen3-0.6B)"
     echo "  device / --device               Backend device (default: auto)"
     echo "  dtype / --dtype                 Backend dtype (default: bfloat16)"
@@ -24,9 +26,9 @@ print_usage() {
     echo "  quantization / --quantization   Quantization mode for backend (default: none)"
     echo "  trust_remote_code / --trust-remote-code  Whether to trust remote code execution (default: false)"
     echo "  continuous_batching / --continuous-batching  Whether to enable continuous batching (default: false)"
-    echo "  login_port / --login-port       Login node port for reverse tunnel (required)"
-    echo "  is_distributed / --is-distributed  Whether to run distributed (0/1, default: 0)"
-    echo "  enable_https / --enable-https   Whether to enable HTTPS (default: disabled)"
+    echo "  login_port / --login-port       Login node port for reverse tunnel (required unless TAP allocates one)"
+    echo "  is_distributed / --is-distributed  Multi-node distributed mode (0/1, default: 0)"
+    echo "  enable_https / --enable-https   Whether to enable HTTPS in gateway mode (default: disabled)"
 }
 
 if [ "$#" -eq 0 ]; then
@@ -47,6 +49,7 @@ MODEL_TIMEOUT="${FLEXSERV_MODEL_TIMEOUT:-86400}"
 QUANTIZATION="${FLEXSERV_QUANTIZATION:-none}"
 TRUST_REMOTE_CODE="${FLEXSERV_TRUST_REMOTE_CODE:-false}"
 CONTINUOUS_BATCHING="${FLEXSERV_CONTINUOUS_BATCHING:-false}"
+CONTAINER_TRANSFORMERS_BACKEND_SERVER="${FLEXSERV_TRANSFORMERS_BACKEND_SERVER:-/app/flexserv/backend/backend_server.py}"
 
 if [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
@@ -127,11 +130,11 @@ else
         print_usage
         exit 1
     fi
-    
+
     FLEXSERV_PORT=${1:-8000}
     FLEXSERV_SECRET=${2:-""}
     MODEL_NAME=${3:-"Qwen/Qwen3-0.6B"}
-    LOGIN_PORT=$4
+    LOGIN_PORT=${4:-""}
     IS_DISTRIBUTED=${5:-0}
     ENABLE_HTTPS=${6:-0}
     QUANTIZATION=${7:-${QUANTIZATION}}
@@ -141,31 +144,94 @@ fi
 
 HUGGINGFACE_TOKEN=${HF_TOKEN:-${HUGGINGFACE_TOKEN:-""}}
 
+is_integer() {
+    [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+parse_gpu_count() {
+    # Handles common Slurm values such as "4", "gpu:4", "a100:4", "gpu:a100:4".
+    local raw="${1:-}"
+    local parsed=""
+
+    if [ -z "$raw" ]; then
+        echo 0
+        return
+    fi
+
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        echo "$raw"
+        return
+    fi
+
+    # Use the last numeric field after ':' if present.
+    parsed=$(printf '%s\n' "$raw" | awk -F: '{print $NF}' | grep -E '^[0-9]+$' || true)
+    if [ -n "$parsed" ]; then
+        echo "$parsed"
+        return
+    fi
+
+    # Fallback: sum all numbers in the string.
+    parsed=$(printf '%s\n' "$raw" | grep -Eo '[0-9]+' | awk '{s+=$1} END {print s+0}')
+    echo "${parsed:-0}"
+}
+
+count_cuda_visible_devices() {
+    local cvd="${1:-}"
+    if [ -z "$cvd" ] || [ "$cvd" = "NoDevFiles" ] || [ "$cvd" = "none" ]; then
+        echo 0
+        return
+    fi
+    awk -F, '{print NF}' <<< "$cvd"
+}
+
 GPU_COUNT=0
 
-# Try nvidia-smi only if it both exists AND works
-if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    GPU_COUNT=$(nvidia-smi -L | wc -l)
-    elif [ -d /proc/driver/nvidia/gpus ]; then
-    GPU_COUNT=$(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | wc -l || true)
+# Prefer an already restricted CUDA_VISIBLE_DEVICES from Slurm or the caller.
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ] && [ "${CUDA_VISIBLE_DEVICES}" != "NoDevFiles" ]; then
+    GPU_COUNT=$(count_cuda_visible_devices "${CUDA_VISIBLE_DEVICES}")
+    echo "Respecting existing CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+else
+    # Prefer Slurm allocation metadata when present, but parse it defensively.
+    if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then
+        GPU_COUNT=$(parse_gpu_count "${SLURM_GPUS_ON_NODE}")
+    elif [ -n "${SLURM_GPUS_PER_NODE:-}" ]; then
+        GPU_COUNT=$(parse_gpu_count "${SLURM_GPUS_PER_NODE}")
+    fi
+
+    # Fall back to nvidia-smi only if it both exists and works.
+    if ! is_integer "$GPU_COUNT" || [ "$GPU_COUNT" -eq 0 ]; then
+        if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+            GPU_COUNT=$(nvidia-smi -L | wc -l | tr -d ' ')
+        elif [ -d /proc/driver/nvidia/gpus ]; then
+            GPU_COUNT=$(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | wc -l | tr -d ' ' || true)
+        fi
+    fi
+
+    if ! is_integer "$GPU_COUNT"; then
+        GPU_COUNT=0
+    fi
+
+    # If GPUs detected, expose exactly the local GPU ordinals inside the container.
+    if [ "$GPU_COUNT" -gt 0 ]; then
+        CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+        export CUDA_VISIBLE_DEVICES
+    fi
 fi
 
-# Check from Slurm environment variables
-GPU_COUNT=${SLURM_GPUS_ON_NODE:-${GPU_COUNT}}
+if ! is_integer "$GPU_COUNT"; then
+    GPU_COUNT=0
+fi
 
-# If GPUs detected → set CUDA_VISIBLE_DEVICES
 if [ "$GPU_COUNT" -gt 0 ]; then
-    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
-    export CUDA_VISIBLE_DEVICES
     echo "Detected $GPU_COUNT NVIDIA GPU(s)"
-    echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 else
     echo "No NVIDIA GPUs detected. Running in CPU mode."
     unset CUDA_VISIBLE_DEVICES || true
 fi
 
-# FIXME: Temporarily disable distributed mode. We need to try to support distributed in the future.
-IS_DISTRIBUTED=0
+# Do NOT force IS_DISTRIBUTED=0 here.
+# Multi-node distributed mode remains off by default, but explicit --distributed still works.
 
 echo "======================================================================"
 echo "FlexServ on TACC HPC - Apptainer Runtime"
@@ -175,7 +241,7 @@ echo "Compute Node: $(hostname)"
 echo "======================================================================"
 
 export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-/work/projects/aci/cic/apps/flexserv}
-mkdir -p $APPTAINER_CACHEDIR
+mkdir -p "$APPTAINER_CACHEDIR"
 
 # 1. Load TACC Apptainer module
 echo "Loading tacc-apptainer module..."
@@ -186,7 +252,7 @@ echo "✓ Apptainer loaded: $(apptainer --version)"
 find_available_port() {
     for port in $(seq 8000 9000); do
         if ! netstat -tuln 2>/dev/null | grep -q ":${port} "; then
-            echo $port
+            echo "$port"
             return
         fi
     done
@@ -209,7 +275,6 @@ if netstat -tuln 2>/dev/null | grep -q ":${FLEXSERV_PORT} "; then
     fi
 fi
 echo "✓ Port ${FLEXSERV_PORT} is available"
-
 
 ############### Set up TAP environment for reverse port forwarding ###############
 NODE_HOSTNAME_PREFIX=$(hostname -s)
@@ -241,7 +306,7 @@ FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${TAP_TOKEN}}}
 if [ -z "${FLEXSERV_OWNER:-}" ]; then
     if owner="$(whoami 2>/dev/null)" && [ -n "${owner}" ]; then
         export FLEXSERV_OWNER="${owner}"
-        elif [ -n "${USER:-}" ]; then
+    elif [ -n "${USER:-}" ]; then
         export FLEXSERV_OWNER="${USER}"
     else
         export FLEXSERV_OWNER="$(id -u 2>/dev/null || echo unknown)"
@@ -251,7 +316,6 @@ fi
 # This is the remote port users will hit (on login nodes)
 export LOGIN_PORT=${LOGIN_PORT:-"$(tap_get_port)"}
 echo "FlexServ login-node port: ${LOGIN_PORT}"
-
 
 export LOCAL_PORT="${FLEXSERV_PORT}"
 export GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT:-$((FLEXSERV_PORT + 1))}
@@ -266,7 +330,6 @@ fi
 echo "Gateway backend port on compute node: ${GATEWAY_BACKEND_PORT}"
 
 ############## TAP environment set up complete ##############
-
 
 # 3. Set up environment variables
 export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/apps/flexserv/models"}
@@ -315,8 +378,6 @@ export APPTAINER_IMAGE="${APPTAINER_IMAGE:-${APPTAINER_IMAGE_DEFAULT}}"
 # Create models directory if it doesn't exist
 mkdir -p "${PRI_MODEL_HOST}"
 
-# chmod 755 ${PUB_MODEL_HOST}
-
 echo "Public model repository (host): ${PUB_MODEL_HOST}"
 echo "Private model repository (host): ${PRI_MODEL_HOST}"
 echo "Detected architecture: ${RAW_ARCH} (image arch code: ${ARCH_CODE})"
@@ -342,11 +403,11 @@ echo ""
 # Create a reverse tunnel on each login node (login1..4)
 for i in 1 2 3 4; do
     ssh -o StrictHostKeyChecking=no \
-    -o ConnectTimeout=3 \
-    -o ExitOnForwardFailure=yes \
-    -q -f -g -N \
-    -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
-    "login${i}" || true
+        -o ConnectTimeout=3 \
+        -o ExitOnForwardFailure=yes \
+        -q -f -g -N \
+        -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
+        "login${i}" || true
 done
 
 HPC_HOST="${NODE_HOSTNAME_DOMAIN}"
@@ -376,10 +437,6 @@ echo "Service will be available on port ${FLEXSERV_PORT}"
 cleanup() {
     echo ""
     echo "Shutting down..."
-    # if [ ! -z "$SSH_TUNNEL_PID" ]; then
-    #     echo "Stopping reverse SSH tunnel..."
-    #     kill ${SSH_TUNNEL_PID} 2>/dev/null || true
-    # fi
     if [ -n "${LOGIN_PORT:-}" ]; then
         tap_release_port "${LOGIN_PORT}" || true
     fi
@@ -387,49 +444,54 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Run apptainer with GPU support in background
-# Apptainer shares the host network by default, so container port is directly accessible on compute node
+# Run apptainer with GPU support.
+# Apptainer shares the host network by default, so container port is directly accessible on compute node.
 
+SLURM_NNODES_EFFECTIVE=${SLURM_NNODES:-1}
+SLURM_NODEID_EFFECTIVE=${SLURM_NODEID:-0}
 export GPUS_PER_NODE=$GPU_COUNT
-export WORLD_SIZE=$((SLURM_NNODES * GPUS_PER_NODE))
-
+export WORLD_SIZE=$((SLURM_NNODES_EFFECTIVE * GPUS_PER_NODE))
 
 # ======================= Distributed setup (if enabled) =======================
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
+    if [ -z "${SLURM_JOB_NODELIST:-}" ]; then
+        echo "ERROR: --distributed requires SLURM_JOB_NODELIST."
+        exit 1
+    fi
+
     MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
     MASTER_PORT=$(
         srun --nodes=1 --ntasks=1 -w "$MASTER_ADDR" \
         bash -lc 'python - << "PY"
-    import socket, random
-    for _ in range(200):
-        p = random.randint(20000, 45000)
-        s = socket.socket()
-        try:
-            s.bind(("", p))
-            s.close()
-            print(p)
-            break
-        except OSError:
-            pass
-    PY'
+import socket, random
+for _ in range(200):
+    p = random.randint(20000, 45000)
+    s = socket.socket()
+    try:
+        s.bind(("", p))
+        s.close()
+        print(p)
+        break
+    except OSError:
+        pass
+PY'
     )
-    
-    # NCCL bits (adjust iface names to your cluster)
-    export NCCL_ASYNC_ERROR_HANDLING=1
-    export NCCL_DEBUG=INFO
-    export NCCL_IB_DISABLE=0
-    
-    if command -v ibdev2netdev &> /dev/null; then
-        # ibdev2netdev exists, use it
-        IB_INTERFACE=$(ibdev2netdev | head -n1 | awk '{print $5}')
-    else
-        # Fallback to ip link
-        IB_INTERFACE=$(ip link show | grep 'ib' | head -1 | awk '{print $2}'|tr -d ':')
-    fi
-    
-    export NCCL_SOCKET_IFNAME=${IB_INTERFACE}
-fi
 
+    # NCCL bits for explicit multi-node distributed mode.
+    export NCCL_ASYNC_ERROR_HANDLING=1
+    export NCCL_DEBUG=${NCCL_DEBUG:-INFO}
+    export NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
+
+    if command -v ibdev2netdev >/dev/null 2>&1; then
+        IB_INTERFACE=$(ibdev2netdev | awk 'NR==1 {print $5}')
+    else
+        IB_INTERFACE=$(ip link show 2>/dev/null | grep 'ib' | head -1 | awk '{print $2}' | tr -d ':' || true)
+    fi
+
+    if [ -n "${IB_INTERFACE:-}" ]; then
+        export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-${IB_INTERFACE}}
+    fi
+fi
 
 export VENV_PATH=${VENV_PATH:-$WORK/venvs}
 echo "VENV_PATH=${VENV_PATH}"
@@ -441,97 +503,101 @@ export APPLY_PATCH=${APPLY_PATCH:-0}
 BOOT_FLAGS=()
 
 if [[ "$TRUST_REMOTE_CODE" == "true" ]] || [[ "$TRUST_REMOTE_CODE" == "1" ]]; then
-    flag="--trust-remote-code"
-    BOOT_FLAGS+=("$flag")
+    BOOT_FLAGS+=("--trust-remote-code")
 fi
 
 if [[ "$CONTINUOUS_BATCHING" == "true" ]] || [[ "$CONTINUOUS_BATCHING" == "1" ]]; then
-    flag="--continuous-batching"
-    BOOT_FLAGS+=("$flag")
+    BOOT_FLAGS+=("--continuous-batching")
 fi
 
-if [ "$IS_DISTRIBUTED" -ne 0 ]; then
-    echo "Launching FlexServ container in DISTRIBUTED mode..."
-    srun --ntasks=${SLURM_NNODES} \
-    --ntasks-per-node=1 \
-    --cpus-per-task=${SLURM_CPUS_PER_TASK:-8} \
-    apptainer run --nv \
-    --bind ${PUB_MODEL_HOST}:/app/models/public:rw \
-    --bind ${PRI_MODEL_HOST}:/app/models/private:rw \
-    --env FLEXSERV_VENV=/app/venvs/flexserv \
-    --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
-    --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
-    --env FLEXSERV_OWNER=${FLEXSERV_OWNER} \
-    --env PUB_MODEL_REPO=/app/models/public \
-    --env PRI_MODEL_REPO=/app/models/private \
-    --env MASTER_ADDR=${MASTER_ADDR} \
-    --env MASTER_PORT=${MASTER_PORT} \
-    --env HF_TOKEN=${HUGGINGFACE_TOKEN} \
-    ${APPTAINER_IMAGE} \
-    /app/venvs/flexserv/bin/accelerate launch \
-    --multi_gpu \
-    --num_machines=${SLURM_NNODES} \
-    --num_processes=${WORLD_SIZE} \
-    --machine_rank=${SLURM_NODEID} \
-    --main_process_ip=${MASTER_ADDR} \
-    --main_process_port=${MASTER_PORT} \
-    --same_network \
-    --mixed_precision=bf16 \
-    /app/flexserv/backend/hf_transformers_backend/backend_server.py \
-    ${MODEL_NAME} \
-    --host 0.0.0.0 \
-    --port ${FLEXSERV_PORT} \
-    --flexserv-token ${FLEXSERV_SECRET} \
-    --device ${DEVICE} \
-    --dtype ${DTYPE} \
-    --attn-implementation ${ATTN_IMPLEMENTATION} \
-    --model-timeout ${MODEL_TIMEOUT} \
-    --quantization ${QUANTIZATION} \
-    "${BOOT_FLAGS[@]}"
-else
-    echo "Launching FlexServ container in SINGLE-NODE mode..."
-    APPTAINER_GATEWAY_TLS_ENVS=()
-    if [ "$ENABLE_HTTPS" -ne 0 ]; then
-        APPTAINER_GATEWAY_TLS_ENVS+=(--env GATEWAY_TLS_CERT=${GATEWAY_TLS_CERT})
-        APPTAINER_GATEWAY_TLS_ENVS+=(--env GATEWAY_TLS_KEY=${GATEWAY_TLS_KEY})
-    fi
-    
-    APPTAINER_PATCH_BINDS=()
-    if [ "$APPLY_PATCH" -ne 0 ]; then
-        echo "Applying backend patches from ${BACKEND_PATCH_PATH}..."
-        echo "Applying landing page patches from ${LANDING_PAGE_PATH}..."
-        APPTAINER_PATCH_BINDS+=(--bind ${BACKEND_PATCH_PATH}:/app/flexserv/backend:ro)
-        APPTAINER_PATCH_BINDS+=(--bind ${LANDING_PAGE_PATH}:/app/flexserv/gateway:ro)
-    fi
-    
-    apptainer run --nv \
-    --bind ${PUB_MODEL_HOST}:/app/models/public:rw \
-    --bind ${PRI_MODEL_HOST}:/app/models/private:rw \
-    "${APPTAINER_PATCH_BINDS[@]}" \
-    --env FLEXSERV_VENV=/app/venvs/flexserv \
-    --env ENABLE_GATEWAY=${ENABLE_GATEWAY:-true} \
-    --env PUB_MODEL_REPO=/app/models/public \
-    --env PRI_MODEL_REPO=/app/models/private \
-    --env GATEWAY_PORT=${FLEXSERV_PORT} \
-    --env GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT} \
-    --env FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers} \
-    --env FLEXSERV_TOKEN=${FLEXSERV_SECRET} \
-    --env FLEXSERV_OWNER=${FLEXSERV_OWNER} \
-    --env HF_TOKEN=${HUGGINGFACE_TOKEN} \
-    --env TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache \
-    "${APPTAINER_GATEWAY_TLS_ENVS[@]}" \
-    ${APPTAINER_IMAGE} \
-    /app/boot_loader.sh \
-    --default-model ${MODEL_NAME} \
-    --host 0.0.0.0 \
-    --port ${FLEXSERV_PORT} \
-    --flexserv-token ${FLEXSERV_SECRET} \
-    --device ${DEVICE} \
-    --dtype ${DTYPE} \
-    --model-timeout ${MODEL_TIMEOUT} \
-    --quantization ${QUANTIZATION} \
-    --attn-implementation ${ATTN_IMPLEMENTATION} \
-    "${BOOT_FLAGS[@]}"
+APPTAINER_GATEWAY_TLS_ENVS=()
+if [ "$ENABLE_HTTPS" -ne 0 ]; then
+    APPTAINER_GATEWAY_TLS_ENVS+=(--env "GATEWAY_TLS_CERT=${GATEWAY_TLS_CERT}")
+    APPTAINER_GATEWAY_TLS_ENVS+=(--env "GATEWAY_TLS_KEY=${GATEWAY_TLS_KEY}")
 fi
+
+APPTAINER_PATCH_BINDS=()
+if [ "$APPLY_PATCH" -ne 0 ]; then
+    echo "Applying backend patches from ${BACKEND_PATCH_PATH}..."
+    echo "Applying landing page patches from ${LANDING_PAGE_PATH}..."
+    APPTAINER_PATCH_BINDS+=(--bind "${BACKEND_PATCH_PATH}:/app/flexserv/backend:ro")
+    APPTAINER_PATCH_BINDS+=(--bind "${LANDING_PAGE_PATH}:/app/flexserv/gateway:ro")
+fi
+
+COMMON_APPTAINER_ARGS=(
+    --nv
+    --bind "${PUB_MODEL_HOST}:/app/models/public:rw"
+    --bind "${PRI_MODEL_HOST}:/app/models/private:rw"
+    "${APPTAINER_PATCH_BINDS[@]}"
+    --env "FLEXSERV_VENV=/app/venvs/flexserv"
+    --env "PUB_MODEL_REPO=/app/models/public"
+    --env "PRI_MODEL_REPO=/app/models/private"
+    --env "FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers}"
+    --env "FLEXSERV_TOKEN=${FLEXSERV_SECRET}"
+    --env "FLEXSERV_OWNER=${FLEXSERV_OWNER}"
+    --env "HF_TOKEN=${HUGGINGFACE_TOKEN}"
+    --env "TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache"
+)
+
+COMMON_APPTAINER_ARGS+=(
+    --env "ENABLE_GATEWAY=${ENABLE_GATEWAY:-true}"
+    --env "GATEWAY_PORT=${FLEXSERV_PORT}"
+    --env "GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT}"
+)
+
+echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
+echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L || true
+
+if [ "$IS_DISTRIBUTED" -ne 0 ]; then
+    echo "Launching FlexServ container in MULTI-NODE DISTRIBUTED mode..."
+    srun --ntasks=${SLURM_NNODES_EFFECTIVE} \
+        --ntasks-per-node=1 \
+        --cpus-per-task=${SLURM_CPUS_PER_TASK:-8} \
+        apptainer run \
+        "${COMMON_APPTAINER_ARGS[@]}" \
+        --env "MASTER_ADDR=${MASTER_ADDR}" \
+        --env "MASTER_PORT=${MASTER_PORT}" \
+        "${APPTAINER_IMAGE}" \
+        /app/venvs/flexserv/bin/accelerate launch \
+        --multi_gpu \
+        --num_machines=${SLURM_NNODES_EFFECTIVE} \
+        --num_processes=${WORLD_SIZE} \
+        --machine_rank=${SLURM_NODEID_EFFECTIVE} \
+        --main_process_ip=${MASTER_ADDR} \
+        --main_process_port=${MASTER_PORT} \
+        --same_network \
+        --mixed_precision=bf16 \
+        "${CONTAINER_TRANSFORMERS_BACKEND_SERVER}" \
+        --default-model "${MODEL_NAME}" \
+        --host 0.0.0.0 \
+        --port "${FLEXSERV_PORT}" \
+        --flexserv-token "${FLEXSERV_SECRET}" \
+        --device "${DEVICE}" \
+        --dtype "${DTYPE}" \
+        --attn-implementation "${ATTN_IMPLEMENTATION}" \
+        --model-timeout "${MODEL_TIMEOUT}" \
+        --quantization "${QUANTIZATION}" \
+        "${BOOT_FLAGS[@]}"
+else
+    echo "Launching FlexServ container in SINGLE-NODE NORMAL mode..."
+
+    apptainer run \
+        "${COMMON_APPTAINER_ARGS[@]}" \
+        "${APPTAINER_GATEWAY_TLS_ENVS[@]}" \
+        "${APPTAINER_IMAGE}" \
+        /app/boot_loader.sh \
+        --default-model "${MODEL_NAME}" \
+        --host 0.0.0.0 \
+        --port "${FLEXSERV_PORT}" \
+        --flexserv-token "${FLEXSERV_SECRET}" \
+        --device "${DEVICE}" \
+        --dtype "${DTYPE}" \
+        --model-timeout "${MODEL_TIMEOUT}" \
+        --quantization "${QUANTIZATION}" \
+        --attn-implementation "${ATTN_IMPLEMENTATION}" \
+        "${BOOT_FLAGS[@]}"
+fi
+
 # If we reach here, container exited normally
 echo "FlexServ container stopped"
