@@ -18,7 +18,7 @@ print_usage() {
     echo "Arguments:"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
     echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
-    echo "  model_name / --model-name       Default FlexServ private model ID (default: FLEX:PRI:Qwen/Qwen3-0.6B)"
+    echo "  model_name / --model-name       Default FlexServ private model ID (default: Qwen/Qwen3.5-0.8B)"
     echo "  device / --device               Backend device (default: auto)"
     echo "  dtype / --dtype                 Backend dtype (default: bfloat16)"
     echo "  attn / --attn-implementation    Attention implementation (default: sdpa)"
@@ -38,7 +38,7 @@ fi
 
 FLEXSERV_PORT=8000
 FLEXSERV_SECRET=""
-MODEL_NAME="FLEX:PRI:Qwen/Qwen3-0.6B"
+MODEL_NAME="Qwen/Qwen3.5-0.8B"
 LOGIN_PORT=""
 IS_DISTRIBUTED=0
 ENABLE_HTTPS=0
@@ -133,7 +133,7 @@ else
 
     FLEXSERV_PORT=${1:-8000}
     FLEXSERV_SECRET=${2:-""}
-    MODEL_NAME=${3:-"Qwen/Qwen3-0.6B"}
+    MODEL_NAME=${3:-"Qwen/Qwen3.5-0.8B"}
     LOGIN_PORT=${4:-""}
     IS_DISTRIBUTED=${5:-0}
     ENABLE_HTTPS=${6:-0}
@@ -143,11 +143,6 @@ else
 fi
 
 HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-""}
-
-# Always use single node mode for now. multi-node distributed mode is still experimental 
-# and requires explicit --distributed flag to enable, but we disable it by default to 
-# prevent accidental multi-node launches without proper setup.
-IS_DISTRIBUTED=0
 
 is_integer() {
     [[ "${1:-}" =~ ^[0-9]+$ ]]
@@ -555,6 +550,14 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L || true
 
+case "${MODEL_NAME}" in
+    FLEX:PRI:*|FLEX:PUB:*)
+    ;;
+    *)
+        MODEL_NAME="FLEX:PRI:${MODEL_NAME}"
+    ;;
+esac
+
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     DIRECT_BACKEND_MODEL_NAME="${MODEL_NAME}"
     case "${DIRECT_BACKEND_MODEL_NAME}" in
@@ -606,7 +609,7 @@ else
         /app/flexserv/bin/flexserv-gateway \
         --manage-backend \
         --backend-kind transformers \
-        --default-model "${MODEL_NAME}" \
+        --backend-default-model "${MODEL_NAME}" \
         --port "${FLEXSERV_PORT}" \
         --backend-port "${GATEWAY_BACKEND_PORT}" \
         --backend-host 0.0.0.0 \
