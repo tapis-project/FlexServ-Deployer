@@ -18,7 +18,7 @@ print_usage() {
     echo "Arguments:"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
     echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
-    echo "  model_name / --model-name       Default model name/path (default: Qwen/Qwen3-0.6B)"
+    echo "  model_name / --model-name       Default FlexServ private model ID (default: FLEX:PRI:Qwen/Qwen3-0.6B)"
     echo "  device / --device               Backend device (default: auto)"
     echo "  dtype / --dtype                 Backend dtype (default: bfloat16)"
     echo "  attn / --attn-implementation    Attention implementation (default: sdpa)"
@@ -38,7 +38,7 @@ fi
 
 FLEXSERV_PORT=8000
 FLEXSERV_SECRET=""
-MODEL_NAME="Qwen/Qwen3-0.6B"
+MODEL_NAME="FLEX:PRI:Qwen/Qwen3-0.6B"
 LOGIN_PORT=""
 IS_DISTRIBUTED=0
 ENABLE_HTTPS=0
@@ -142,7 +142,12 @@ else
     CONTINUOUS_BATCHING=${9:-${CONTINUOUS_BATCHING}}
 fi
 
-HUGGINGFACE_TOKEN=${HF_TOKEN:-${HUGGINGFACE_TOKEN:-""}}
+HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-""}
+
+# Always use single node mode for now. multi-node distributed mode is still experimental 
+# and requires explicit --distributed flag to enable, but we disable it by default to 
+# prevent accidental multi-node launches without proper setup.
+IS_DISTRIBUTED=0
 
 is_integer() {
     [[ "${1:-}" =~ ^[0-9]+$ ]]
@@ -376,10 +381,12 @@ APPTAINER_IMAGE_DEFAULT="/work/projects/aci/cic/apps/flexserv/flexserv_${ARCH_CO
 export APPTAINER_IMAGE="${APPTAINER_IMAGE:-${APPTAINER_IMAGE_DEFAULT}}"
 
 # Create models directory if it doesn't exist
-mkdir -p "${PRI_MODEL_HOST}"
+HF_CACHE_HOST=${HF_CACHE_HOST:-"${PRI_MODEL_HOST}/.hf_cache"}
+mkdir -p "${PRI_MODEL_HOST}" "${HF_CACHE_HOST}"
 
 echo "Public model repository (host): ${PUB_MODEL_HOST}"
 echo "Private model repository (host): ${PRI_MODEL_HOST}"
+echo "HF cache directory (host): ${HF_CACHE_HOST}"
 echo "Detected architecture: ${RAW_ARCH} (image arch code: ${ARCH_CODE})"
 echo "Apptainer image: ${APPTAINER_IMAGE}"
 echo "Default model name: ${MODEL_NAME}"
@@ -415,10 +422,10 @@ HPC_HOST="${NODE_HOSTNAME_DOMAIN}"
 protocol="http"
 if [ "$ENABLE_HTTPS" -ne 0 ]; then
     protocol="https"
-    export GATEWAY_TLS_CERT="${TAP_CERTFILE}"
-    export GATEWAY_TLS_KEY="${TAP_KEYFILE:-${TAP_CERTFILE}}"
-    echo "Gateway TLS cert: ${GATEWAY_TLS_CERT}"
-    echo "Gateway TLS key:  ${GATEWAY_TLS_KEY}"
+    export TLS_CERT="${TAP_CERTFILE}"
+    export TLS_KEY="${TAP_KEYFILE:-${TAP_CERTFILE}}"
+    echo "Gateway TLS cert: ${TLS_CERT}"
+    echo "Gateway TLS key:  ${TLS_KEY}"
 fi
 
 echo ""
@@ -500,20 +507,23 @@ export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flex
 export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-/work/projects/aci/cic/apps/flexserv/patches/gateway}
 export APPLY_PATCH=${APPLY_PATCH:-0}
 
-BOOT_FLAGS=()
+BACKEND_SERVER_FLAGS=()
+GATEWAY_BACKEND_FLAGS=()
 
 if [[ "$TRUST_REMOTE_CODE" == "true" ]] || [[ "$TRUST_REMOTE_CODE" == "1" ]]; then
-    BOOT_FLAGS+=("--trust-remote-code")
+    BACKEND_SERVER_FLAGS+=("--trust-remote-code")
+    GATEWAY_BACKEND_FLAGS+=("--backend-trust-remote-code")
 fi
 
 if [[ "$CONTINUOUS_BATCHING" == "true" ]] || [[ "$CONTINUOUS_BATCHING" == "1" ]]; then
-    BOOT_FLAGS+=("--continuous-batching")
+    BACKEND_SERVER_FLAGS+=("--continuous-batching")
+    GATEWAY_BACKEND_FLAGS+=("--backend-continuous-batching")
 fi
 
 APPTAINER_GATEWAY_TLS_ENVS=()
 if [ "$ENABLE_HTTPS" -ne 0 ]; then
-    APPTAINER_GATEWAY_TLS_ENVS+=(--env "GATEWAY_TLS_CERT=${GATEWAY_TLS_CERT}")
-    APPTAINER_GATEWAY_TLS_ENVS+=(--env "GATEWAY_TLS_KEY=${GATEWAY_TLS_KEY}")
+    APPTAINER_GATEWAY_TLS_ENVS+=(--env "TLS_CERT=${TLS_CERT}")
+    APPTAINER_GATEWAY_TLS_ENVS+=(--env "TLS_KEY=${TLS_KEY}")
 fi
 
 APPTAINER_PATCH_BINDS=()
@@ -528,21 +538,17 @@ COMMON_APPTAINER_ARGS=(
     --nv
     --bind "${PUB_MODEL_HOST}:/app/models/public:rw"
     --bind "${PRI_MODEL_HOST}:/app/models/private:rw"
+    --bind "${HF_CACHE_HOST}:/app/models/.hf_cache:rw"
     "${APPTAINER_PATCH_BINDS[@]}"
     --env "FLEXSERV_VENV=/app/venvs/flexserv"
     --env "PUB_MODEL_REPO=/app/models/public"
     --env "PRI_MODEL_REPO=/app/models/private"
+    --env "HF_HOME=/app/models/.hf_cache"
     --env "FLEXSERV_BACKEND_TYPE=${FLEXSERV_BACKEND_TYPE:-transformers}"
     --env "FLEXSERV_TOKEN=${FLEXSERV_SECRET}"
     --env "FLEXSERV_OWNER=${FLEXSERV_OWNER}"
-    --env "HF_TOKEN=${HUGGINGFACE_TOKEN}"
+    --env "HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}"
     --env "TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache"
-)
-
-COMMON_APPTAINER_ARGS+=(
-    --env "ENABLE_GATEWAY=${ENABLE_GATEWAY:-true}"
-    --env "GATEWAY_PORT=${FLEXSERV_PORT}"
-    --env "GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT}"
 )
 
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
@@ -550,6 +556,17 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L || true
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
+    DIRECT_BACKEND_MODEL_NAME="${MODEL_NAME}"
+    case "${DIRECT_BACKEND_MODEL_NAME}" in
+        FLEX:PRI:*)
+            DIRECT_BACKEND_MODEL_NAME="${DIRECT_BACKEND_MODEL_NAME#FLEX:PRI:}"
+        ;;
+        FLEX:PUB:*)
+            echo "ERROR: distributed direct-backend mode cannot resolve public-pool FlexServ IDs. Use a private model or disable --distributed."
+            exit 1
+        ;;
+    esac
+
     echo "Launching FlexServ container in MULTI-NODE DISTRIBUTED mode..."
     srun --ntasks=${SLURM_NNODES_EFFECTIVE} \
         --ntasks-per-node=1 \
@@ -569,7 +586,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
         --same_network \
         --mixed_precision=bf16 \
         "${CONTAINER_TRANSFORMERS_BACKEND_SERVER}" \
-        --default-model "${MODEL_NAME}" \
+        --default-model "${DIRECT_BACKEND_MODEL_NAME}" \
         --host 0.0.0.0 \
         --port "${FLEXSERV_PORT}" \
         --flexserv-token "${FLEXSERV_SECRET}" \
@@ -578,7 +595,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
         --attn-implementation "${ATTN_IMPLEMENTATION}" \
         --model-timeout "${MODEL_TIMEOUT}" \
         --quantization "${QUANTIZATION}" \
-        "${BOOT_FLAGS[@]}"
+        "${BACKEND_SERVER_FLAGS[@]}"
 else
     echo "Launching FlexServ container in SINGLE-NODE NORMAL mode..."
 
@@ -586,17 +603,21 @@ else
         "${COMMON_APPTAINER_ARGS[@]}" \
         "${APPTAINER_GATEWAY_TLS_ENVS[@]}" \
         "${APPTAINER_IMAGE}" \
-        /app/boot_loader.sh \
+        /app/flexserv/bin/flexserv-gateway \
+        --manage-backend \
+        --backend-kind transformers \
         --default-model "${MODEL_NAME}" \
-        --host 0.0.0.0 \
         --port "${FLEXSERV_PORT}" \
+        --backend-port "${GATEWAY_BACKEND_PORT}" \
+        --backend-host 0.0.0.0 \
+        --backend-server "${CONTAINER_TRANSFORMERS_BACKEND_SERVER}" \
         --flexserv-token "${FLEXSERV_SECRET}" \
-        --device "${DEVICE}" \
-        --dtype "${DTYPE}" \
-        --model-timeout "${MODEL_TIMEOUT}" \
-        --quantization "${QUANTIZATION}" \
-        --attn-implementation "${ATTN_IMPLEMENTATION}" \
-        "${BOOT_FLAGS[@]}"
+        --backend-device "${DEVICE}" \
+        --backend-dtype "${DTYPE}" \
+        --backend-model-timeout "${MODEL_TIMEOUT}" \
+        --backend-quantization "${QUANTIZATION}" \
+        --backend-attn-implementation "${ATTN_IMPLEMENTATION}" \
+        "${GATEWAY_BACKEND_FLAGS[@]}"
 fi
 
 # If we reach here, container exited normally
