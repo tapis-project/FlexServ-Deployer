@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Compute bundle metadata
         id: meta
@@ -56,7 +56,7 @@ jobs:
           unzip -l "dist/${{ steps.meta.outputs.zip_name }}"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tapisjob-bundle
           path: dist/${{ steps.meta.outputs.zip_name }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Publish GitHub Release asset
         if: ${{ inputs.publish_release }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: Tapis Job Bundle (${{ steps.meta.outputs.tag }})
