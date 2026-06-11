@@ -1,5 +1,5 @@
 #!/bin/bash
-# FlexServ Runner Script for TACC HPC Environment
+# FlexServ Runner Script for HPC Environments
 # Supports:
 #   1) normal single-node single-process mode through the gateway
 #   2) optional multi-node distributed mode if explicitly enabled
@@ -243,11 +243,19 @@ echo "======================================================================"
 export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-/work/projects/aci/cic/apps/flexserv}
 mkdir -p "$APPTAINER_CACHEDIR"
 
-# 1. Load TACC Apptainer module
-echo "Loading tacc-apptainer module..."
-module load tacc-apptainer
-module unload xalt
-echo "✓ Apptainer loaded: $(apptainer --version)"
+# 1. Load Apptainer
+echo "Loading Apptainer..."
+if command -v apptainer >/dev/null 2>&1; then
+    echo "✓ Apptainer already in PATH: $(apptainer --version)"
+elif module load tacc-apptainer 2>/dev/null; then
+    module unload xalt 2>/dev/null || true
+    echo "✓ Apptainer loaded via tacc-apptainer module: $(apptainer --version)"
+elif module load apptainer 2>/dev/null; then
+    echo "✓ Apptainer loaded via apptainer module: $(apptainer --version)"
+else
+    echo "ERROR: Could not find apptainer."
+    exit 1
+fi
 
 find_available_port() {
     for port in $(seq 8000 9000); do
@@ -282,24 +290,33 @@ export NODE_HOSTNAME_DOMAIN=$(hostname -d)
 echo "TACC: running on node $NODE_HOSTNAME_PREFIX on $NODE_HOSTNAME_DOMAIN"
 
 TAP_FUNCTIONS="/share/doc/slurm/tap_functions"
+TAP_AVAILABLE=0
 if [ -f "${TAP_FUNCTIONS}" ]; then
     . "${TAP_FUNCTIONS}"
+    TAP_AVAILABLE=1
 else
-    echo "TACC: ERROR - could not find TAP functions file: ${TAP_FUNCTIONS}"
-    exit 1
+    echo "WARNING: TAP functions not found, skipping TAP setup."
 fi
 
 mkdir -p "${HOME}/.tap"
-export TAP_CERTFILE="$(cat "${HOME}/.tap/.${SLURM_JOB_ID}")"
-if [ ! -f "${TAP_CERTFILE}" ]; then
-    echo "TACC: ERROR - could not find TLS cert for secure session"
-    exit 1
+if [ "${TAP_AVAILABLE}" -eq 1 ]; then
+    export TAP_CERTFILE="$(cat "${HOME}/.tap/.${SLURM_JOB_ID}")"
+    if [ ! -f "${TAP_CERTFILE}" ]; then
+        echo "TACC: ERROR - could not find TLS cert for secure session"
+        exit 1
+    fi
+else
+    export TAP_CERTFILE=""
 fi
 
-export TAP_TOKEN="$(tap_get_token)"
-if [ -z "${TAP_TOKEN}" ]; then
-    echo "TACC: ERROR - could not generate token for app session"
-    exit 1
+if [ "${TAP_AVAILABLE}" -eq 1 ]; then
+    export TAP_TOKEN="$(tap_get_token)"
+    if [ -z "${TAP_TOKEN}" ]; then
+        echo "TACC: ERROR - could not generate token for app session"
+        exit 1
+    fi
+else
+    export TAP_TOKEN=""
 fi
 
 FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${TAP_TOKEN}}}
@@ -314,7 +331,14 @@ if [ -z "${FLEXSERV_OWNER:-}" ]; then
 fi
 
 # This is the remote port users will hit (on login nodes)
-export LOGIN_PORT=${LOGIN_PORT:-"$(tap_get_port)"}
+if [ -z "${LOGIN_PORT}" ]; then
+    if [ "${TAP_AVAILABLE}" -eq 1 ]; then
+        export LOGIN_PORT="$(tap_get_port)"
+    else
+        echo "ERROR: --login-port is required on non-TACC clusters (no TAP available)"
+        exit 1
+    fi
+fi
 echo "FlexServ login-node port: ${LOGIN_PORT}"
 
 export LOCAL_PORT="${FLEXSERV_PORT}"
@@ -402,17 +426,22 @@ echo "FlexServ running on compute node: $(hostname):${FLEXSERV_PORT}"
 echo "Forwarding to login node port: ${LOGIN_PORT}"
 echo ""
 
-# Create a reverse tunnel on each login node (login1..4)
-for i in 1 2 3 4; do
+# Create a reverse tunnel on each login node
+if [ -z "${LOGIN_NODE_PREFIX:-}" ]; then
+    echo "ERROR: LOGIN_NODE_PREFIX is not set. Export it before running (e.g. export LOGIN_NODE_PREFIX=pitzer-login0)"
+    exit 1
+fi
+LOGIN_NODE_COUNT=${LOGIN_NODE_COUNT:-4}
+for i in $(seq 1 $LOGIN_NODE_COUNT); do
     ssh -o StrictHostKeyChecking=no \
         -o ConnectTimeout=3 \
         -o ExitOnForwardFailure=yes \
         -q -f -g -N \
         -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
-        "login${i}" || true
+        "${LOGIN_NODE_PREFIX}${i}" || true
 done
 
-HPC_HOST="${NODE_HOSTNAME_DOMAIN}"
+HPC_HOST=${HPC_HOST:-"${NODE_HOSTNAME_DOMAIN}"}
 
 protocol="http"
 if [ "$ENABLE_HTTPS" -ne 0 ]; then
@@ -440,7 +469,7 @@ cleanup() {
     echo ""
     echo "Shutting down..."
     if [ -n "${LOGIN_PORT:-}" ]; then
-        tap_release_port "${LOGIN_PORT}" || true
+        if [ "${TAP_AVAILABLE:-0}" -eq 1 ]; then tap_release_port "${LOGIN_PORT}" || true; fi
     fi
     echo "✓ Cleanup complete"
 }
@@ -495,7 +524,7 @@ PY'
     fi
 fi
 
-export VENV_PATH=${VENV_PATH:-$WORK/venvs}
+export VENV_PATH=${VENV_PATH:-/venvs}
 echo "VENV_PATH=${VENV_PATH}"
 
 export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flexserv/patches/backend}
