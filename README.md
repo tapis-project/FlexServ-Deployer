@@ -255,11 +255,11 @@ Example launch overrides:
 export APPTAINER_CACHEDIR=$HOME/flexserv_cache
 export PRI_MODEL_HOST=$HOME/flexserv/models
 export PUB_MODEL_HOST=$HOME/flexserv/models
-export APPTAINER_IMAGE=${"path/to/apptainer/image.sif"}
+export APPTAINER_IMAGE=/path/to/apptainer/image.sif
 export LOGIN_NODE_PREFIX=pitzer-login0
 export HPC_HOST=pitzer-login01.hpc.osc.edu
 
-cd ${"path/to/flexserv/repo"}/FlexServ-Deployer/hpc_archive/app
+cd /path/to/flexserv/repo/FlexServ-Deployer/hpc_archive/app
 ./run_flexserv.sh --login-port 18080 --secret flexserv --device cpu
 ```
 
