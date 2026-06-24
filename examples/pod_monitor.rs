@@ -46,11 +46,13 @@ async fn main() -> Result<(), flexserv_deployer::DeploymentError> {
             pod_url,
             pod_info,
             volume_info,
+            status,
             ..
         } => {
             println!("pod_id:     {}", pod_id);
             println!("volume_id:  {}", volume_id);
-            println!("pod_url:    {:?}", pod_url);
+            println!("pod_url:    {}", pod_url.as_deref().unwrap_or("None"));
+            println!("status:     {}", status.as_deref().unwrap_or("None"));
             println!(
                 "volume_info (first 500 chars): {}...",
                 volume_info.chars().take(500).collect::<String>()
