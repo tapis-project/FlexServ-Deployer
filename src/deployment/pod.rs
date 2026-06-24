@@ -1,11 +1,11 @@
+use std::collections::HashMap;
+
 use super::{DeploymentError, DeploymentResult, FlexServDeployment};
 use crate::backend::Backend;
 use crate::server::{FlexServInstance, ModelConfig, TapisConfig, ValidationError};
-use reqwest::header::{HeaderMap, HeaderValue};
+
 use tapis_pods::apis;
-use tapis_pods::apis::configuration;
-use tapis_pods::apis::pods_api;
-use tapis_pods::apis::volumes_api;
+use tapis_pods::client::TapisPods;
 use tapis_pods::models;
 
 /// Options for pod-based deployment (volume size, image, resources, secrets, deployment id).
@@ -75,25 +75,6 @@ impl FlexServPodDeployment {
         }
     }
 
-    /// Derive pod_id and volume_id from options.deployment_id (if set) or from server deployment_hash.
-    /// deployment_id is normalized to lowercase alphanumeric (e.g. UUID with dashes stripped).
-    fn ids_from_options(
-        server: &FlexServInstance,
-        options: &PodDeploymentOptions,
-    ) -> (String, String) {
-        let suffix = if let Some(ref id) = options.deployment_id {
-            let normalized = crate::utils::normalize_to_lowercase_alphanumeric(id);
-            if normalized.is_empty() {
-                server.deployment_hash().to_lowercase()
-            } else {
-                normalized
-            }
-        } else {
-            server.deployment_hash().to_lowercase()
-        };
-        (format!("p{}", suffix), format!("v{}", suffix))
-    }
-
     /// Create a deployment from [TapisConfig], [ModelConfig], backend, and options (no validation).
     pub fn from_configs(
         tapis: TapisConfig,
@@ -105,8 +86,6 @@ impl FlexServPodDeployment {
         Self::with_options(server, tapis.tapis_token, options)
     }
 
-    /// Convenience: create a deployment with individual params (validates inputs).
-    /// Use [FlexServPodDeployment::from_configs] for config structs, or [FlexServPodDeployment::with_options] for full control.
     pub fn create_deployment(
         tenant_url: String,
         tapis_user: String,
@@ -121,12 +100,15 @@ impl FlexServPodDeployment {
             .model(model_id)
             .backend(backend)
             .build()?;
-        let mut options = PodDeploymentOptions::default();
-        options.deployment_id = deployment_id;
+
+        let options = PodDeploymentOptions {
+            deployment_id,
+            ..Default::default()
+        };
+
         Ok(Self::with_options(server, tapis_token, options))
     }
 
-    /// Create a deployment from existing pod_id and volume_id (for start/stop/terminate/monitor).
     pub fn from_existing(
         server: FlexServInstance,
         tapis_token: String,
@@ -144,37 +126,275 @@ impl FlexServPodDeployment {
         }
     }
 
-    /// Build Pods API configuration (base URL + reqwest client with X-Tapis-Token).
-    /// Base must be the v3 API root (e.g. https://tacc.tapis.io/v3).
-    fn pods_config(&self) -> Result<configuration::Configuration, DeploymentError> {
+    /// Implement ID selection here: explicit deployment_id first, otherwise a
+    /// deterministic hash from tenant/user/model/backend.
+    /// Returns Pod id, Volume id.
+    fn ids_from_options(
+        server: &FlexServInstance,
+        options: &PodDeploymentOptions,
+    ) -> (String, String) {
+        let suffix = if let Some(ref id) = options.deployment_id {
+            let normalized = crate::utils::normalize_to_lowercase_alphanumeric(id);
+            if normalized.is_empty() {
+                server.deployment_hash().to_lowercase()
+            } else {
+                normalized
+            }
+        } else {
+            server.deployment_hash().to_lowercase()
+        };
+        (format!("p{}", suffix), format!("v{}", suffix))
+    }
+
+    /// Build the high-level Tapis Pods client from tenant URL + token.
+    fn pods_client(&self) -> Result<TapisPods, DeploymentError> {
         let base = self.server.tenant_url.trim_end_matches('/');
         let api_base = format!("{}/v3", base);
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "X-Tapis-Token",
-            HeaderValue::from_str(&self.tapis_token)
-                .map_err(|e| DeploymentError::TapisAuthFailed(e.to_string()))?,
-        );
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()
+
+        let client = TapisPods::new(&api_base, Some(&self.tapis_token))
             .map_err(|e| DeploymentError::TapisAuthFailed(e.to_string()))?;
-        let mut config = configuration::Configuration::default();
-        config.base_path = api_base;
-        config.client = reqwest_middleware::ClientBuilder::new(client).build();
-        Ok(config)
+
+        Ok(client)
     }
 
-    /// Extract pod URL from API response (networking.default.url).
-    fn _pod_url_from_result(result: &tapis_pods::models::PodResponseModel) -> Option<String> {
-        result
-            .networking
+    /// Convert a model id into the directory name expected on the mounted volume.
+    fn model_dir_name(&self) -> String {
+        self.server.default_model.clone()
+    }
+
+    /// Build the token clients will use to call the FlexServ pod.
+    /// Example: `mysecret-` + `openai-community_gpt2`
+    fn flexserv_token(&self, model_dir_name: &str) -> String {
+        let secret = self
+            .options
+            .flexserv_secret
+            .clone()
+            .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
+        format!("{}{}", secret, model_dir_name)
+    }
+
+    /// Build the Tapis `NewVolume` request body.
+    fn build_volume_request(&self) -> Result<models::NewVolume, DeploymentError> {
+        let mut new_volume = models::NewVolume::new(self.volume_id.clone());
+        new_volume.description = Some(format!(
+            "Volume for {}@{}",
+            self.server.tapis_user, self.server.default_model
+        ));
+        new_volume.size_limit = Some(self.options.volume_size_mb.unwrap_or(10 * 1024)); // default to 10 GB
+
+        Ok(new_volume)
+    }
+
+    /// Build the full Tapis `NewPod` request body in one place.
+    fn build_pod_request(
+        &self,
+        model_dir_name: &str,
+        flexserv_token: &str,
+    ) -> Result<models::NewPod, DeploymentError> {
+        const MODEL_REPO_PATH: &str = "/app/models";
+        const PRIVATE_MODEL_REPO_PATH: &str = "/app/models/private";
+        const PUBLIC_MODEL_REPO_PATH: &str = "/app/models/public";
+        const FLEXSERV_PORT: &str = "8000";
+        const BACKEND_PORT: &str = "8001";
+        const TRANSFORMERS_BACKEND_SERVER: &str = "/app/flexserv/backend/backend_server.py";
+
+        // Create New Pod
+        let mut new_pod = models::NewPod::new(self.pod_id.clone());
+        new_pod.description = Some(format!(
+            "FlexServ pod for {}@{}",
+            self.server.tapis_user, self.server.default_model
+        ));
+
+        // Set new pods image
+        new_pod.image = self
+            .options
+            .image
+            .clone()
+            .or_else(|| Some("zhangwei217245/flexserv-transformers:1.4.6".to_string()));
+
+        // Create new Mount value
+        let mut mount =
+            models::VolumeMountsValue::new(models::volume_mounts_value::Type::Tapisvolume);
+        mount.source_id = Some(Some(self.volume_id.clone()));
+        mount.sub_path = Some(String::new());
+        mount.read_only = Some(Some(false));
+
+        // Mount the volume at /app/models/private
+        let mut volume_mounts = HashMap::new();
+        volume_mounts.insert(MODEL_REPO_PATH.to_string(), mount);
+
+        // Add volume mounts to new pod
+        new_pod.volume_mounts = Some(volume_mounts);
+
+        // Defining params
+        let pod_params = self
+            .server
+            .backend
+            .parameter_set_builder()
+            .build_params_for_pod(&self.server);
+
+        // Setting ENV variables
+        let flexserv_secret = self
+            .options
+            .flexserv_secret
+            .clone()
+            .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
+        let hf_token = self
+            .server
+            .hf_token
+            .clone()
+            .or_else(|| std::env::var("HF_TOKEN").ok());
+
+        let mut env_vars = pod_params.environment_variables.unwrap_or_default();
+        env_vars.extend([
+            ("MODEL_REPO".to_string(), serde_json::json!(MODEL_REPO_PATH)),
+            (
+                "PRI_MODEL_REPO".to_string(),
+                serde_json::json!(PRIVATE_MODEL_REPO_PATH),
+            ),
+            (
+                "PUB_MODEL_REPO".to_string(),
+                serde_json::json!(PUBLIC_MODEL_REPO_PATH),
+            ),
+            (
+                "FLEXSERV_PORT".to_string(),
+                serde_json::json!(FLEXSERV_PORT),
+            ),
+            (
+                "GATEWAY_BACKEND_PORT".to_string(),
+                serde_json::json!(BACKEND_PORT),
+            ),
+            ("MODEL_NAME".to_string(), serde_json::json!(model_dir_name)),
+            (
+                "FLEXSERV_SECRET".to_string(),
+                serde_json::json!(flexserv_secret),
+            ),
+            (
+                "FLEXSERV_TOKEN".to_string(),
+                serde_json::json!(flexserv_token),
+            ),
+        ]);
+
+        if let Some(ref token) = hf_token {
+            env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(token));
+        }
+
+        let model_path = format!("FLEX:PRI:{}", model_dir_name);
+
+        //  Main cmd to run
+        let (command, arguments) = match &self.server.backend {
+            Backend::Transformers { .. } => (
+                Some(vec!["/app/flexserv/bin/flexserv-gateway".to_string()]),
+                vec![
+                    "--manage-backend".to_string(),
+                    "--backend-kind".to_string(),
+                    "transformers".to_string(),
+                    "--backend-default-model".to_string(),
+                    model_path,
+                    "--port".to_string(),
+                    FLEXSERV_PORT.to_string(),
+                    "--backend-port".to_string(),
+                    BACKEND_PORT.to_string(),
+                    "--backend-host".to_string(),
+                    "0.0.0.0".to_string(),
+                    "--backend-server".to_string(),
+                    TRANSFORMERS_BACKEND_SERVER.to_string(),
+                    "--flexserv-token".to_string(),
+                    flexserv_token.to_string(),
+                    "--backend-device".to_string(),
+                    "auto".to_string(),
+                    "--backend-dtype".to_string(),
+                    "bfloat16".to_string(),
+                    "--backend-model-timeout".to_string(),
+                    "86400".to_string(),
+                    "--backend-quantization".to_string(),
+                    "none".to_string(),
+                    "--backend-attn-implementation".to_string(),
+                    "sdpa".to_string(),
+                ],
+            ),
+            _ => (
+                pod_params.command.clone(),
+                pod_params.arguments.unwrap_or_default(),
+            ),
+        };
+
+        // Networking
+        let mut networking = HashMap::new();
+        let mut net = models::Networking::new();
+        net.protocol = Some("http".to_string());
+        net.port = Some(8000);
+        networking.insert("default".to_string(), net);
+
+        // Resources
+        let mut resources = models::ModelsPodsResources::new();
+        resources.cpu_request = Some(self.options.cpu_request.unwrap_or(1000));
+        resources.cpu_limit = Some(self.options.cpu_limit.unwrap_or(2000));
+        resources.mem_request = Some(self.options.mem_request_mb.unwrap_or(4096));
+        resources.mem_limit = Some(self.options.mem_limit_mb.unwrap_or(8192));
+        resources.gpus = Some(self.options.gpus.unwrap_or(0));
+
+        // Adding all components to pod
+        new_pod.command = command.map(Some);
+        new_pod.arguments = Some(Some(arguments));
+        new_pod.environment_variables = Some(env_vars);
+        new_pod.status_requested = Some("ON".to_string());
+        new_pod.time_to_stop_default = Some(-1);
+        new_pod.time_to_stop_instance = Some(Some(-1));
+        new_pod.networking = Some(networking);
+        new_pod.resources = Some(Box::new(resources));
+
+        Ok(new_pod)
+    }
+
+    /// Convert a successful pod response model into this crate's public result type.
+    fn pod_result_from_model(&self, pod: &models::PodResponseModel) -> DeploymentResult {
+        self.pod_result_from_model_with_info(
+            pod,
+            format!("{:#?}", pod),
+            self.volume_info.clone().unwrap_or_default(),
+        )
+    }
+
+    /// Convert a successful pod response model plus explicit info strings into this crate's public result type.
+    fn pod_result_from_model_with_info(
+        &self,
+        pod: &models::PodResponseModel,
+        pod_info: String,
+        volume_info: String,
+    ) -> DeploymentResult {
+        DeploymentResult::PodResult {
+            pod_id: self.pod_id.clone(),
+            volume_id: self.volume_id.clone(),
+            pod_url: Self::pod_url_from_result(pod),
+            status: pod.status.clone(),
+            pod_info,
+            volume_info,
+            tapis_user: self.server.tapis_user.clone(),
+            tapis_tenant: self.server.tenant_url.clone(),
+            model_id: self.server.default_model.clone(),
+        }
+    }
+
+    /// Extract the public URL from the Tapis pod response.
+    fn pod_url_from_result(pod: &models::PodResponseModel) -> Option<String> {
+        pod.networking
             .as_ref()
-            .and_then(|n| n.get("default"))
-            .and_then(|net| net.url.clone())
+            .and_then(|networking| networking.get("default"))
+            .and_then(|default_net| default_net.url.clone())
     }
 
-    /// Map a tapis-pods error into our DeploymentError, based on HTTP status / network.
+    /// Detect the stale-resource case so create can delete and retry.
+    fn is_already_exists_error<E: std::fmt::Debug>(err: &apis::Error<E>) -> bool {
+        matches!(
+            err,
+            apis::Error::ResponseError(resp)
+                if resp.content.contains("already exists")
+                    || resp.content.contains("UniqueViolation")
+        )
+    }
+
+    /// Convert Tapis SDK errors into this crate's deployment errors.
     fn map_pods_error<E: std::fmt::Debug>(err: apis::Error<E>) -> DeploymentError {
         match err {
             apis::Error::Reqwest(e) => {
@@ -207,327 +427,148 @@ impl FlexServPodDeployment {
 
 impl FlexServDeployment for FlexServPodDeployment {
     async fn create(&mut self) -> Result<DeploymentResult, DeploymentError> {
-        let config = self.pods_config()?;
+        let client = self.pods_client()?;
 
-        // Clean up any existing pod/volume with these ids.
-        // Ignore errors (404 means they don't exist, which is fine).
-        // Delete pod first, then volume (volume deletion may fail if pod still exists).
-        let _ = pods_api::delete_pod(&config, &self.pod_id).await;
+        // Remove stale resources with these deterministic IDs before creating new ones.
+        // The delete calls are intentionally best-effort: "not found" is fine here.
+        let _ = client.pods.delete_pod(&self.pod_id).await;
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
-
-        // Wait for deletions to complete (volumes can take a moment)
+        let _ = client.volumes.delete_volume(&self.volume_id).await;
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-        // --- Create volume ---
-        let volume_size_mb = self.options.volume_size_mb.unwrap_or(10 * 1024);
-        let volume_desc = format!(
-            "Volume for {}@{}",
-            self.server.tapis_user, self.server.default_model
-        );
-        let new_volume = models::NewVolume {
-            volume_id: self.volume_id.clone(),
-            description: Some(volume_desc),
-            size_limit: Some(volume_size_mb),
-        };
+        let new_volume = self.build_volume_request()?;
 
-        // Try to create volume. If it already exists, delete and retry once.
-        let volume_result = volumes_api::create_volume(&config, new_volume.clone()).await;
-
-        match volume_result {
-            Ok(_) => {}
-            Err(e) => {
-                // If volume already exists, try deleting and recreating
-                if let apis::Error::ResponseError(ref resp) = e {
-                    if resp.content.contains("already exists")
-                        || resp.content.contains("UniqueViolation")
-                    {
-                        log::warn!(
-                            "Volume {} already exists, deleting and retrying...",
-                            self.volume_id
-                        );
-                        let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
-                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                        volumes_api::create_volume(&config, new_volume)
-                            .await
-                            .map_err(Self::map_pods_error)?;
-                    } else {
-                        return Err(Self::map_pods_error(e));
-                    }
-                } else {
-                    return Err(Self::map_pods_error(e));
-                }
+        match client.volumes.create_volume(new_volume.clone()).await {
+            Ok(resp) => {
+                self.volume_info = Some(format!("{:#?}", resp.result));
             }
+            Err(e) if Self::is_already_exists_error(&e) => {
+                let _ = client.volumes.delete_volume(&self.volume_id).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                let resp = client
+                    .volumes
+                    .create_volume(new_volume)
+                    .await
+                    .map_err(Self::map_pods_error)?;
+                self.volume_info = Some(format!("{:#?}", resp.result));
+            }
+            Err(e) => return Err(Self::map_pods_error(e)),
         }
 
-        // Model dir in volume: single directory name (e.g. openai-community/gpt2 -> openai-community_gpt2).
-        let model_dir_name = self.server.default_model.replace('/', "_");
-        // --- Create pod ---
-        let image = self
-            .options
-            .image
-            .clone()
-            .unwrap_or_else(|| "tapis/flexserv:1.0".to_string());
+        let model_dir_name = self.model_dir_name();
+        let flexserv_token = self.flexserv_token(&model_dir_name);
+        let new_pod = self.build_pod_request(&model_dir_name, &flexserv_token)?;
 
-        // volume_mounts: key = mount path, value = VolumeMountsValue (type, source_id, sub_path).
-        const MODEL_REPO_PATH: &str = "/app/models";
-        let mut volume_mounts = std::collections::HashMap::new();
-        let mut mount =
-            models::VolumeMountsValue::new(models::volume_mounts_value::Type::Tapisvolume);
-        mount.source_id = Some(Some(self.volume_id.clone()));
-        mount.sub_path = Some(String::new());
-        volume_mounts.insert(MODEL_REPO_PATH.to_string(), mount);
-        let flexserv_secret = self
-            .options
-            .flexserv_secret
-            .clone()
-            .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
-        let flexserv_token = format!("{}{}", flexserv_secret, model_dir_name);
-
-        let hf_token = self
-            .server
-            .hf_token
-            .clone()
-            .or_else(|| std::env::var("HF_TOKEN").ok());
-
-        // Default startup command + default args + user extra args (from server.backend).
-        let pod_params = self
-            .server
-            .backend
-            .parameter_set_builder()
-            .build_params_for_pod(&self.server);
-
-        let model_path = format!("{}/{}", MODEL_REPO_PATH, model_dir_name);
-        let mut arguments = pod_params.arguments.unwrap_or_default();
-        arguments.insert(0, model_path);
-        arguments.push("--flexserv-token".to_string());
-        arguments.push(flexserv_token.clone());
-
-        let mut env_vars: std::collections::HashMap<String, serde_json::Value> =
-            pod_params.environment_variables.unwrap_or_default();
-        env_vars.insert("MODEL_REPO".to_string(), serde_json::json!(MODEL_REPO_PATH));
-        env_vars.insert("FLEXSERV_PORT".to_string(), serde_json::json!("8000"));
-        env_vars.insert("MODEL_NAME".to_string(), serde_json::json!(model_dir_name));
-        env_vars.insert(
-            "FLEXSERV_SECRET".to_string(),
-            serde_json::json!(flexserv_secret),
-        );
-        env_vars.insert(
-            "FLEXSERV_TOKEN".to_string(),
-            serde_json::json!(flexserv_token),
-        );
-        if let Some(ref t) = hf_token {
-            env_vars.insert("HF_TOKEN".to_string(), serde_json::json!(t));
-        }
-
-        let mut net = models::ModelsPodsNetworking::new();
-        net.protocol = Some("http".to_string());
-        net.port = Some(8000);
-        let mut networking = std::collections::HashMap::new();
-        networking.insert("default".to_string(), net);
-
-        let mut resources = models::ModelsPodsResources::new();
-        resources.cpu_request = Some(self.options.cpu_request.unwrap_or(1000));
-        resources.cpu_limit = Some(self.options.cpu_limit.unwrap_or(2000));
-        resources.mem_request = Some(self.options.mem_request_mb.unwrap_or(4096));
-        resources.mem_limit = Some(self.options.mem_limit_mb.unwrap_or(8192));
-        resources.gpus = Some(self.options.gpus.unwrap_or(0));
-
-        let mut new_pod = models::NewPod::new(self.pod_id.clone());
-        new_pod.image = Some(image);
-        new_pod.description = Some(format!(
-            "FlexServ pod for {}@{}",
-            self.server.tapis_user, self.server.default_model
-        ));
-        new_pod.command = pod_params.command.map(Some);
-        new_pod.arguments = Some(Some(arguments));
-        new_pod.environment_variables = Some(env_vars);
-        new_pod.status_requested = Some("ON".to_string());
-        new_pod.volume_mounts = Some(volume_mounts);
-        new_pod.time_to_stop_default = Some(-1);
-        new_pod.time_to_stop_instance = Some(Some(-1));
-        new_pod.networking = Some(networking);
-        new_pod.resources = Some(Box::new(resources));
-
-        // Log the exact Pods create_pod request body for debugging.
         if let Ok(body) = serde_json::to_string_pretty(&new_pod) {
-            log::info!("Pods create_pod request body:\n{}", body);
+            log::info!("TapisPods create_pod request body:\n{}", body);
         }
 
-        // Create pod. If this fails, clean up the volume we just created.
-        let pod_resp = match pods_api::create_pod(&config, new_pod).await {
+        let pod_resp = match client.pods.create_pod(new_pod).await {
             Ok(resp) => resp,
             Err(e) => {
-                log::error!(
-                    "Pod creation failed, cleaning up volume {}...",
-                    self.volume_id
-                );
-                let _ = volumes_api::delete_volume(&config, &self.volume_id).await;
+                let _ = client.volumes.delete_volume(&self.volume_id).await;
                 return Err(Self::map_pods_error(e));
             }
         };
 
-        // Store minimal info for monitoring later
         self.pod_info = Some(format!("{:#?}", pod_resp.result));
-        self.volume_info = Some(self.volume_id.clone());
+        Ok(self.pod_result_from_model(&pod_resp.result))
+    }
 
-        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
-        let status = pod_resp.result.status.clone();
+    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
+        let pods_client = self.pods_client()?;
 
-        Ok(DeploymentResult::PodResult {
+        let start_response = match pods_client.pods.start_pod(&self.pod_id).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(Self::map_pods_error(e)),
+        };
+
+        Ok(self.pod_result_from_model(&start_response.result))
+    }
+
+    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
+        let pods_client = self.pods_client()?;
+
+        let stop_response = match pods_client.pods.stop_pod(&self.pod_id).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(Self::map_pods_error(e)),
+        };
+
+        Ok(self.pod_result_from_model(&stop_response.result))
+    }
+
+    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
+        // Implement:
+        // - call `pods_client`
+        // - delete pod first
+        // - wait briefly
+        // - delete volume second
+        // - return a `DeploymentResult::PodResult` with no pod_url/status
+
+        let pods_client = self.pods_client()?;
+
+        let _ = match pods_client.pods.delete_pod(&self.pod_id).await {
+            Ok(_resp) => {}
+            Err(e) => {
+                log::error!(
+                    "Error deleting pod {}: {:?}",
+                    self.pod_id,
+                    Self::map_pods_error(e)
+                );
+
+                // Continue to attempt volume deletion regardless of pod deletion result
+            }
+        };
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        if !self.volume_id.is_empty() {
+            if let Err(e) = pods_client.volumes.delete_volume(&self.volume_id).await {
+                log::error!(
+                    "Error deleting volume {}: {:?}",
+                    self.volume_id,
+                    Self::map_pods_error(e)
+                );
+            }
+        }
+
+        let pod_result = DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
             volume_id: self.volume_id.clone(),
-            pod_url,
-            status,
+            pod_url: None,
+            status: Some("TERMINATED".to_string()),
             pod_info: self.pod_info.clone().unwrap_or_default(),
             volume_info: self.volume_info.clone().unwrap_or_default(),
             tapis_user: self.server.tapis_user.clone(),
             tapis_tenant: self.server.tenant_url.clone(),
             model_id: self.server.default_model.clone(),
-        })
-    }
-
-    async fn start(&self) -> Result<DeploymentResult, DeploymentError> {
-        let config = self.pods_config()?;
-        let pod_resp = pods_api::start_pod(&config, &self.pod_id)
-            .await
-            .map_err(Self::map_pods_error)?;
-
-        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
-        let status = pod_resp.result.status.clone();
-
-        Ok(DeploymentResult::PodResult {
-            pod_id: self.pod_id.clone(),
-            volume_id: self.volume_id.clone(),
-            pod_url,
-            status,
-            pod_info: format!("{:#?}", pod_resp.result),
-            volume_info: self.volume_id.clone(),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
-        })
-    }
-
-    async fn stop(&self) -> Result<DeploymentResult, DeploymentError> {
-        let config = self.pods_config()?;
-        let pod_resp = pods_api::stop_pod(&config, &self.pod_id)
-            .await
-            .map_err(Self::map_pods_error)?;
-
-        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
-        let status = pod_resp.result.status.clone();
-
-        Ok(DeploymentResult::PodResult {
-            pod_id: self.pod_id.clone(),
-            volume_id: self.volume_id.clone(),
-            pod_url,
-            status,
-            pod_info: format!("{:#?}", pod_resp.result),
-            volume_info: self.volume_id.clone(),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
-        })
-    }
-
-    async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
-        let config = self.pods_config()?;
-
-        // Delete pod and volume together. Try both even if one fails.
-        // Delete pod first (volume deletion may fail if pod still exists).
-        let mut pod_resp = None;
-        let mut pod_error = None;
-        match pods_api::delete_pod(&config, &self.pod_id).await {
-            Ok(resp) => pod_resp = Some(resp),
-            Err(e) => pod_error = Some(Self::map_pods_error(e)),
-        }
-
-        let mut vol_resp = None;
-        let mut vol_error = None;
-        if !self.volume_id.is_empty() {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            match volumes_api::delete_volume(&config, &self.volume_id).await {
-                Ok(resp) => vol_resp = Some(resp),
-                Err(e) => vol_error = Some(Self::map_pods_error(e)),
-            }
-        }
-
-        // If both failed, return the pod error (more critical)
-        if pod_error.is_some() && vol_error.is_some() {
-            return Err(pod_error.unwrap());
-        }
-        // If only one failed, log it but continue (partial cleanup is better than none)
-        if let Some(ref e) = pod_error {
-            log::warn!("Pod deletion failed (but volume deleted): {:?}", e);
-        }
-        if let Some(ref e) = vol_error {
-            log::warn!("Volume deletion failed (but pod deleted): {:?}", e);
-        }
-
-        let vol_info = if self.volume_id.is_empty() {
-            "no volume".to_string()
-        } else {
-            vol_resp
-                .as_ref()
-                .map(|r| format!("{:#?}", r))
-                .unwrap_or_else(|| "deleted".to_string())
         };
-        let combined_info = format!(
-            "pod: {:#?}\nvolume: {}",
-            pod_resp
-                .as_ref()
-                .map(|r| format!("{:#?}", r))
-                .unwrap_or_else(|| "deleted".to_string()),
-            vol_info
-        );
 
-        Ok(DeploymentResult::PodResult {
-            pod_id: self.pod_id.clone(),
-            volume_id: self.volume_id.clone(),
-            pod_url: None, // pod deleted
-            status: None,
-            pod_info: combined_info,
-            volume_info: String::new(),
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
-        })
+        Ok(pod_result)
     }
 
     async fn monitor(&self) -> Result<DeploymentResult, DeploymentError> {
-        let config = self.pods_config()?;
+        let pods_client = self.pods_client()?;
 
-        let pod_resp = pods_api::get_pod(&config, &self.pod_id, None, None)
-            .await
-            .map_err(Self::map_pods_error)?;
-
-        log::debug!("pods_api::get_pod result:\n{:#?}", pod_resp);
+        let pods_result = match pods_client.pods.get_pod(&self.pod_id, None, None).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(Self::map_pods_error(e)),
+        };
 
         let volume_info = if self.volume_id.is_empty() {
             String::new()
         } else {
-            match volumes_api::get_volume(&config, &self.volume_id).await {
-                Ok(vol_resp) => format!("{:#?}", vol_resp.result),
+            match pods_client.volumes.get_volume(&self.volume_id).await {
+                Ok(resp) => format!("{:#?}", resp.result),
                 Err(_) => String::new(),
             }
         };
 
-        let pod_info = format!("{:#?}", pod_resp.result);
-        let pod_url = Self::_pod_url_from_result(&pod_resp.result);
-        let status = pod_resp.result.status.clone();
-
-        Ok(DeploymentResult::PodResult {
-            pod_id: self.pod_id.clone(),
-            volume_id: self.volume_id.clone(),
-            pod_url,
-            status,
-            pod_info,
+        Ok(self.pod_result_from_model_with_info(
+            &pods_result.result,
+            format!("{:#?}", pods_result.result),
             volume_info,
-            tapis_user: self.server.tapis_user.clone(),
-            tapis_tenant: self.server.tenant_url.clone(),
-            model_id: self.server.default_model.clone(),
-        })
+        ))
     }
 }
 
