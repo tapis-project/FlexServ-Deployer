@@ -31,8 +31,12 @@ async fn main() -> Result<(), DeploymentError> {
     } else if let [tenant, token, pod, vol, ..] = std::env::args().collect::<Vec<_>>().as_slice() {
         (tenant.clone(), token.clone(), pod.clone(), vol.clone())
     } else {
-        eprintln!("Usage: TAPIS_TENANT_URL=... TAPIS_TOKEN=... POD_ID=... VOLUME_ID=... cargo run --example terminate_pod");
-        eprintln!("   or: cargo run --example terminate_pod -- <TAPIS_TENANT_URL> <TAPIS_TOKEN> <POD_ID> <VOLUME_ID>");
+        eprintln!(
+            "Usage: TAPIS_TENANT_URL=... TAPIS_TOKEN=... POD_ID=... VOLUME_ID=... cargo run --example terminate_pod"
+        );
+        eprintln!(
+            "   or: cargo run --example terminate_pod -- <TAPIS_TENANT_URL> <TAPIS_TOKEN> <POD_ID> <VOLUME_ID>"
+        );
         std::process::exit(1);
     };
 
@@ -66,7 +70,7 @@ async fn main() -> Result<(), DeploymentError> {
             println!("Terminate succeeded:");
             println!("  pod_id:    {}", p);
             println!("  volume_id: {}", v);
-            println!("  pod_url:   {:?}", pod_url);
+            println!("  pod_url:   {}", pod_url.as_deref().unwrap_or("None"));
             println!("  info:      {} chars", pod_info.len());
         }
         DeploymentResult::HPCResult { .. } => unreachable!("pod deployment returns PodResult"),

@@ -105,7 +105,10 @@ async fn main() -> Result<(), DeploymentError> {
                 model_id
             );
             let auth_token = model_id.replace('/', "_");
-            println!("  auth_token: {} (use as Authorization: Bearer or X-FlexServ-Secret; add FLEXSERV_SECRET prefix if you set it)", auth_token);
+            println!(
+                "  auth_token: {} (use as Authorization: Bearer or X-FlexServ-Secret; add FLEXSERV_SECRET prefix if you set it)",
+                auth_token
+            );
             println!("  pod_info: {}", pod_info.chars().collect::<String>());
         }
         DeploymentResult::HPCResult { .. } => unreachable!("pod deployment returns PodResult"),
