@@ -162,17 +162,6 @@ impl FlexServPodDeployment {
         self.server.default_model.clone()
     }
 
-    /// Build the token clients will use to call the FlexServ pod.
-    /// Example: `mysecret-` + `openai-community_gpt2`
-    fn flexserv_token(&self, model_dir_name: &str) -> String {
-        let secret = self
-            .options
-            .flexserv_secret
-            .clone()
-            .unwrap_or_else(|| std::env::var("FLEXSERV_SECRET").unwrap_or_default());
-        format!("{}{}", secret, model_dir_name)
-    }
-
     /// Build the Tapis `NewVolume` request body.
     fn build_volume_request(&self) -> Result<models::NewVolume, DeploymentError> {
         let mut new_volume = models::NewVolume::new(self.volume_id.clone());
@@ -186,11 +175,7 @@ impl FlexServPodDeployment {
     }
 
     /// Build the full Tapis `NewPod` request body in one place.
-    fn build_pod_request(
-        &self,
-        model_dir_name: &str,
-        flexserv_token: &str,
-    ) -> Result<models::NewPod, DeploymentError> {
+    fn build_pod_request(&self, model_dir_name: &str) -> Result<models::NewPod, DeploymentError> {
         const MODEL_REPO_PATH: &str = "/app/models";
         const PRIVATE_MODEL_REPO_PATH: &str = "/app/models/private";
         const PUBLIC_MODEL_REPO_PATH: &str = "/app/models/public";
@@ -269,10 +254,6 @@ impl FlexServPodDeployment {
                 "FLEXSERV_SECRET".to_string(),
                 serde_json::json!(flexserv_secret),
             ),
-            (
-                "FLEXSERV_TOKEN".to_string(),
-                serde_json::json!(flexserv_token),
-            ),
         ]);
 
         if let Some(ref token) = hf_token {
@@ -300,7 +281,7 @@ impl FlexServPodDeployment {
                     "--backend-server".to_string(),
                     TRANSFORMERS_BACKEND_SERVER.to_string(),
                     "--flexserv-token".to_string(),
-                    flexserv_token.to_string(),
+                    flexserv_secret.to_string(),
                     "--backend-device".to_string(),
                     "auto".to_string(),
                     "--backend-dtype".to_string(),
@@ -385,12 +366,11 @@ impl FlexServPodDeployment {
     }
 
     /// Detect the stale-resource case so create can delete and retry.
-    fn is_already_exists_error<E: std::fmt::Debug>(err: &apis::Error<E>) -> bool {
+    fn is_not_found_error<E: std::fmt::Debug>(err: &apis::Error<E>) -> bool {
         matches!(
             err,
             apis::Error::ResponseError(resp)
-                if resp.content.contains("already exists")
-                    || resp.content.contains("UniqueViolation")
+                if resp.content.contains("not found")
         )
     }
 
@@ -431,33 +411,48 @@ impl FlexServDeployment for FlexServPodDeployment {
 
         // Remove stale resources with these deterministic IDs before creating new ones.
         // The delete calls are intentionally best-effort: "not found" is fine here.
-        let _ = client.pods.delete_pod(&self.pod_id).await;
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let _ = client.volumes.delete_volume(&self.volume_id).await;
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        match client.pods.delete_pod(&self.pod_id).await {
+            Ok(_resp) => {}
+            Err(e) => {
+                log::warn!(
+                    "Warning: failed to delete stale pod {}: {:?}",
+                    self.pod_id,
+                    Self::map_pods_error(e)
+                );
+            }
+        };
 
-        let new_volume = self.build_volume_request()?;
-
-        match client.volumes.create_volume(new_volume.clone()).await {
+        match client.volumes.get_volume(&self.volume_id).await {
             Ok(resp) => {
-                self.volume_info = Some(format!("{:#?}", resp.result));
+                log::info!(
+                    "Found existing volume {}. Continuing with existing volume: {:#?}",
+                    self.volume_id,
+                    resp.result
+                );
             }
-            Err(e) if Self::is_already_exists_error(&e) => {
-                let _ = client.volumes.delete_volume(&self.volume_id).await;
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                let resp = client
-                    .volumes
-                    .create_volume(new_volume)
-                    .await
-                    .map_err(Self::map_pods_error)?;
-                self.volume_info = Some(format!("{:#?}", resp.result));
+            Err(e) if Self::is_not_found_error(&e) => {
+                log::info!(
+                    "No existing volume {} found. Will create new volume. Error: {:?}",
+                    self.volume_id,
+                    Self::map_pods_error(e)
+                );
+
+                let new_volume = self.build_volume_request()?;
+
+                match client.volumes.create_volume(new_volume.clone()).await {
+                    Ok(resp) => {
+                        self.volume_info = Some(format!("{:#?}", resp.result));
+                    }
+                    Err(e) => return Err(Self::map_pods_error(e)),
+                }
             }
-            Err(e) => return Err(Self::map_pods_error(e)),
-        }
+            Err(e) => {
+                return Err(Self::map_pods_error(e));
+            }
+        };
 
         let model_dir_name = self.model_dir_name();
-        let flexserv_token = self.flexserv_token(&model_dir_name);
-        let new_pod = self.build_pod_request(&model_dir_name, &flexserv_token)?;
+        let new_pod = self.build_pod_request(&model_dir_name)?;
 
         if let Ok(body) = serde_json::to_string_pretty(&new_pod) {
             log::info!("TapisPods create_pod request body:\n{}", body);
@@ -466,7 +461,6 @@ impl FlexServDeployment for FlexServPodDeployment {
         let pod_resp = match client.pods.create_pod(new_pod).await {
             Ok(resp) => resp,
             Err(e) => {
-                let _ = client.volumes.delete_volume(&self.volume_id).await;
                 return Err(Self::map_pods_error(e));
             }
         };
@@ -498,16 +492,9 @@ impl FlexServDeployment for FlexServPodDeployment {
     }
 
     async fn terminate(&self) -> Result<DeploymentResult, DeploymentError> {
-        // Implement:
-        // - call `pods_client`
-        // - delete pod first
-        // - wait briefly
-        // - delete volume second
-        // - return a `DeploymentResult::PodResult` with no pod_url/status
-
         let pods_client = self.pods_client()?;
 
-        let _ = match pods_client.pods.delete_pod(&self.pod_id).await {
+        match pods_client.pods.delete_pod(&self.pod_id).await {
             Ok(_resp) => {}
             Err(e) => {
                 log::error!(
@@ -515,22 +502,8 @@ impl FlexServDeployment for FlexServPodDeployment {
                     self.pod_id,
                     Self::map_pods_error(e)
                 );
-
-                // Continue to attempt volume deletion regardless of pod deletion result
             }
         };
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-        if !self.volume_id.is_empty() {
-            if let Err(e) = pods_client.volumes.delete_volume(&self.volume_id).await {
-                log::error!(
-                    "Error deleting volume {}: {:?}",
-                    self.volume_id,
-                    Self::map_pods_error(e)
-                );
-            }
-        }
 
         let pod_result = DeploymentResult::PodResult {
             pod_id: self.pod_id.clone(),
