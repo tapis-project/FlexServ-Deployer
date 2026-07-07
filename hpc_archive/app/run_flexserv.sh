@@ -9,13 +9,14 @@ set -e
 # Parse arguments (supports both named args in any order and legacy positional args)
 print_usage() {
     echo "Usage (named, order-independent):"
-    echo "  $0 [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--device <device>] [--dtype <dtype>] [--attn-implementation <impl>] [--model-timeout <seconds>] [--quantization <mode|bnb-4bit|bnb-8bit>] [--trust-remote-code <true|false>] [--continuous-batching <true|false>] [--enable-https]"
-    echo "  $0 --login-port 18080 --secret flexserv"
+    echo "  $0 [--site <name>] [--login-port <port>] [--is-distributed <0|1>] [--flexserv-port <port>] [--secret <secret>] [--model-name <model>] [--device <device>] [--dtype <dtype>] [--attn-implementation <impl>] [--model-timeout <seconds>] [--quantization <mode|bnb-4bit|bnb-8bit>] [--trust-remote-code <true|false>] [--continuous-batching <true|false>] [--enable-https]"
+    echo "  $0 --site tacc --login-port 18080 --secret flexserv"
     echo ""
     echo "Usage (legacy positional):"
     echo "  $0 <flexserv_port> <secret> <model_name> [login_port] [is_distributed] [enable_https] [quantization] [trust_remote_code] [continuous_batching]"
     echo ""
     echo "Arguments:"
+    echo "  --site                          HPC site name (default: tacc)"
     echo "  flexserv_port / --flexserv-port FlexServ service port on compute node (default: 8000)"
     echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
     echo "  model_name / --model-name       Default FlexServ private model ID (default: Qwen/Qwen3.5-0.8B)"
@@ -31,15 +32,11 @@ print_usage() {
     echo "  enable_https / --enable-https   Whether to enable HTTPS in gateway mode (default: disabled)"
 }
 
-if [ "$#" -eq 0 ]; then
-    print_usage
-    exit 1
-fi
-
 FLEXSERV_PORT=8000
 FLEXSERV_SECRET=""
 MODEL_NAME="Qwen/Qwen3.5-0.8B"
 LOGIN_PORT=""
+HPC_SITE_NAME_CLI=""
 IS_DISTRIBUTED=0
 ENABLE_HTTPS=0
 DEVICE="${FLEXSERV_DEVICE:-auto}"
@@ -51,81 +48,85 @@ TRUST_REMOTE_CODE="${FLEXSERV_TRUST_REMOTE_CODE:-false}"
 CONTINUOUS_BATCHING="${FLEXSERV_CONTINUOUS_BATCHING:-false}"
 CONTAINER_TRANSFORMERS_BACKEND_SERVER="${FLEXSERV_TRANSFORMERS_BACKEND_SERVER:-/app/flexserv/backend/backend_server.py}"
 
-if [[ "$1" == -* ]]; then
+if [ "$#" -gt 0 ] && [[ "$1" == -* ]]; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --login-port)
-                LOGIN_PORT="$2"
-                shift 2
+        --site)
+            HPC_SITE_NAME_CLI="$2"
+            shift 2
             ;;
-            --is-distributed)
-                IS_DISTRIBUTED="$2"
-                shift 2
+        --login-port)
+            LOGIN_PORT="$2"
+            shift 2
             ;;
-            --distributed)
-                IS_DISTRIBUTED=1
-                shift
+        --is-distributed)
+            IS_DISTRIBUTED="$2"
+            shift 2
             ;;
-            --single-node)
-                IS_DISTRIBUTED=0
-                shift
+        --distributed)
+            IS_DISTRIBUTED=1
+            shift
             ;;
-            --flexserv-port)
-                FLEXSERV_PORT="$2"
-                shift 2
+        --single-node)
+            IS_DISTRIBUTED=0
+            shift
             ;;
-            --secret)
-                FLEXSERV_SECRET="$2"
-                shift 2
+        --flexserv-port)
+            FLEXSERV_PORT="$2"
+            shift 2
             ;;
-            --model-name)
-                MODEL_NAME="$2"
-                shift 2
+        --secret)
+            FLEXSERV_SECRET="$2"
+            shift 2
             ;;
-            --device)
-                DEVICE="$2"
-                shift 2
+        --model-name)
+            MODEL_NAME="$2"
+            shift 2
             ;;
-            --dtype)
-                DTYPE="$2"
-                shift 2
+        --device)
+            DEVICE="$2"
+            shift 2
             ;;
-            --attn-implementation)
-                ATTN_IMPLEMENTATION="$2"
-                shift 2
+        --dtype)
+            DTYPE="$2"
+            shift 2
             ;;
-            --model-timeout)
-                MODEL_TIMEOUT="$2"
-                shift 2
+        --attn-implementation)
+            ATTN_IMPLEMENTATION="$2"
+            shift 2
             ;;
-            --enable-https)
-                ENABLE_HTTPS=1
-                shift
+        --model-timeout)
+            MODEL_TIMEOUT="$2"
+            shift 2
             ;;
-            --quantization)
-                QUANTIZATION="$2"
-                shift 2
+        --enable-https)
+            ENABLE_HTTPS=1
+            shift
             ;;
-            --trust-remote-code)
-                TRUST_REMOTE_CODE="$2"
-                shift 2
+        --quantization)
+            QUANTIZATION="$2"
+            shift 2
             ;;
-            --continuous-batching)
-                CONTINUOUS_BATCHING="$2"
-                shift 2
+        --trust-remote-code)
+            TRUST_REMOTE_CODE="$2"
+            shift 2
             ;;
-            -h|--help)
-                print_usage
-                exit 0
+        --continuous-batching)
+            CONTINUOUS_BATCHING="$2"
+            shift 2
             ;;
-            *)
-                echo "ERROR: Unknown argument: $1"
-                print_usage
-                exit 1
+        -h | --help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1"
+            print_usage
+            exit 1
             ;;
         esac
     done
-else
+elif [ "$#" -gt 0 ]; then
     if [ "$#" -lt 1 ] || [ "$#" -gt 9 ]; then
         print_usage
         exit 1
@@ -143,6 +144,93 @@ else
 fi
 
 HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-""}
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+HPC_SITE_DEFAULT="tacc"
+
+if [ -n "${HPC_SITE_NAME_CLI:-}" ]; then
+    HPC_SITE_SCRIPT="${SCRIPT_DIR}/sites/${HPC_SITE_NAME_CLI}.sh"
+    echo "Using HPC site from --site argument: ${HPC_SITE_NAME_CLI}"
+elif [ -n "${HPC_SITE_SCRIPT:-}" ]; then
+    echo "Using HPC site from environment variable HPC_SITE_NAME: ${HPC_SITE_NAME_CLI}"
+else
+    HPC_SITE_SCRIPT="${SCRIPT_DIR}/sites/${HPC_SITE_DEFAULT}.sh"
+    echo "No --site argument or HPC_SITE_NAME env var provided, defaulting to site: ${HPC_SITE_DEFAULT}"
+fi
+
+if [ ! -f "${HPC_SITE_SCRIPT}" ]; then
+    echo "ERROR: HPC SITE SCRIPT at ${HPC_SITE_SCRIPT} is not a file"
+    exit 1
+fi
+
+echo "Using HPC site script: ${HPC_SITE_SCRIPT}"
+
+. "${HPC_SITE_SCRIPT}"
+
+setup_environment() {
+    concrete_setup_environment
+}
+
+prepare_apptainer() {
+    echo "Preparing Apptainer environment..."
+
+    concrete_prepare_apptainer || {
+        echo "ERROR: Failed to prepare Apptainer environment"
+        exit 1
+    }
+
+    if ! command -v apptainer >/dev/null 2>&1; then
+        echo "ERROR: Apptainer is not available after preparation"
+        exit 1
+    fi
+
+    echo "✓ Apptainer loaded: $(apptainer --version)"
+}
+
+setup_cert_tls() {
+    concrete_setup_cert_tls
+
+    if [ "$ENABLE_HTTPS" -ne 0 ]; then
+        if [ -z "${TLS_CERT:-}" ] || [ -z "${TLS_KEY:-}" ]; then
+            echo "ERROR: HTTPS is enabled but TLS_CERT or TLS_KEY is not set"
+            exit 1
+        fi
+
+        protocol="https"
+        echo "Gateway TLS cert: ${TLS_CERT}"
+        echo "Gateway TLS key:  ${TLS_KEY}"
+    else
+        protocol="http"
+    fi
+}
+
+setup_random_token() {
+    concrete_setup_random_token
+
+    if [ -z "${RAND_TOKEN:-}" ]; then
+        echo "ERROR: Failed to generate random token"
+        exit 1
+    fi
+}
+
+setup_login_port() {
+    concrete_setup_login_port
+
+    if [ -z "${LOGIN_PORT:-}" ]; then
+        echo "ERROR: LOGIN_PORT is not set after setup"
+        exit 1
+    fi
+
+    echo "FlexServ login-node port: ${LOGIN_PORT}"
+}
+
+setup_reverse_tunnels() {
+    concrete_setup_reverse_tunnels
+}
+
+cleanup_site_resources() {
+    concrete_cleanup_site_resources
+}
 
 is_integer() {
     [[ "${1:-}" =~ ^[0-9]+$ ]]
@@ -181,7 +269,7 @@ count_cuda_visible_devices() {
         echo 0
         return
     fi
-    awk -F, '{print NF}' <<< "$cvd"
+    awk -F, '{print NF}' <<<"$cvd"
 }
 
 GPU_COUNT=0
@@ -234,28 +322,16 @@ fi
 # Multi-node distributed mode remains off by default, but explicit --distributed still works.
 
 echo "======================================================================"
-echo "FlexServ on TACC HPC - Apptainer Runtime"
+echo "FlexServ on HPC - Apptainer Runtime"
 echo "======================================================================"
 echo "FlexServ Port: ${FLEXSERV_PORT}"
 echo "Compute Node: $(hostname)"
 echo "======================================================================"
 
-export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-/work/projects/aci/cic/apps/flexserv}
-mkdir -p "$APPTAINER_CACHEDIR"
+setup_environment
 
-# 1. Load Apptainer
-echo "Loading Apptainer..."
-if command -v apptainer >/dev/null 2>&1; then
-    echo "✓ Apptainer already in PATH: $(apptainer --version)"
-elif module load tacc-apptainer 2>/dev/null; then
-    module unload xalt 2>/dev/null || true
-    echo "✓ Apptainer loaded via tacc-apptainer module: $(apptainer --version)"
-elif module load apptainer 2>/dev/null; then
-    echo "✓ Apptainer loaded via apptainer module: $(apptainer --version)"
-else
-    echo "ERROR: Could not find apptainer."
-    exit 1
-fi
+# 1. Prepare Apptainer environment
+prepare_apptainer
 
 find_available_port() {
     for port in $(seq 8000 9000); do
@@ -284,42 +360,16 @@ if netstat -tuln 2>/dev/null | grep -q ":${FLEXSERV_PORT} "; then
 fi
 echo "✓ Port ${FLEXSERV_PORT} is available"
 
-############### Set up TAP environment for reverse port forwarding ###############
+############### Set up environment for reverse port forwarding ###############
 NODE_HOSTNAME_PREFIX=$(hostname -s)
 export NODE_HOSTNAME_DOMAIN=$(hostname -d)
-echo "TACC: running on node $NODE_HOSTNAME_PREFIX on $NODE_HOSTNAME_DOMAIN"
+echo "HPC: running on node $NODE_HOSTNAME_PREFIX on $NODE_HOSTNAME_DOMAIN"
 
-TAP_FUNCTIONS="/share/doc/slurm/tap_functions"
-TAP_AVAILABLE=0
-if [ -f "${TAP_FUNCTIONS}" ]; then
-    . "${TAP_FUNCTIONS}"
-    TAP_AVAILABLE=1
-else
-    echo "WARNING: TAP functions not found, skipping TAP setup."
-fi
+setup_cert_tls
+setup_random_token
+setup_login_port
 
-mkdir -p "${HOME}/.tap"
-if [ "${TAP_AVAILABLE}" -eq 1 ]; then
-    export TAP_CERTFILE="$(cat "${HOME}/.tap/.${SLURM_JOB_ID}")"
-    if [ ! -f "${TAP_CERTFILE}" ]; then
-        echo "TACC: ERROR - could not find TLS cert for secure session"
-        exit 1
-    fi
-else
-    export TAP_CERTFILE=""
-fi
-
-if [ "${TAP_AVAILABLE}" -eq 1 ]; then
-    export TAP_TOKEN="$(tap_get_token)"
-    if [ -z "${TAP_TOKEN}" ]; then
-        echo "TACC: ERROR - could not generate token for app session"
-        exit 1
-    fi
-else
-    export TAP_TOKEN=""
-fi
-
-FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${TAP_TOKEN}}}
+FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${RAND_TOKEN}}}
 if [ -z "${FLEXSERV_OWNER:-}" ]; then
     if owner="$(whoami 2>/dev/null)" && [ -n "${owner}" ]; then
         export FLEXSERV_OWNER="${owner}"
@@ -329,17 +379,6 @@ if [ -z "${FLEXSERV_OWNER:-}" ]; then
         export FLEXSERV_OWNER="$(id -u 2>/dev/null || echo unknown)"
     fi
 fi
-
-# This is the remote port users will hit (on login nodes)
-if [ -z "${LOGIN_PORT}" ]; then
-    if [ "${TAP_AVAILABLE}" -eq 1 ]; then
-        export LOGIN_PORT="$(tap_get_port)"
-    else
-        echo "ERROR: --login-port is required on non-TACC clusters (no TAP available)"
-        exit 1
-    fi
-fi
-echo "FlexServ login-node port: ${LOGIN_PORT}"
 
 export LOCAL_PORT="${FLEXSERV_PORT}"
 export GATEWAY_BACKEND_PORT=${GATEWAY_BACKEND_PORT:-$((FLEXSERV_PORT + 1))}
@@ -353,7 +392,7 @@ fi
 
 echo "Gateway backend port on compute node: ${GATEWAY_BACKEND_PORT}"
 
-############## TAP environment set up complete ##############
+############## Environment set up complete ##############
 
 # 3. Set up environment variables
 export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"/work/projects/aci/cic/apps/flexserv/models"}
@@ -362,36 +401,36 @@ export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${SCRATCH}/flexserv/models"}
 RAW_ARCH="$(uname -m 2>/dev/null || echo unknown)"
 if [ -n "${FLEXSERV_ARCH_CODE:-}" ]; then
     case "${FLEXSERV_ARCH_CODE}" in
-        amd64|arm64)
-            ARCH_CODE="${FLEXSERV_ARCH_CODE}"
-            echo "WARNING: Overriding detected architecture '${RAW_ARCH}' with FLEXSERV_ARCH_CODE='${ARCH_CODE}'."
+    amd64 | arm64)
+        ARCH_CODE="${FLEXSERV_ARCH_CODE}"
+        echo "WARNING: Overriding detected architecture '${RAW_ARCH}' with FLEXSERV_ARCH_CODE='${ARCH_CODE}'."
         ;;
-        *)
-            echo "ERROR: Invalid FLEXSERV_ARCH_CODE='${FLEXSERV_ARCH_CODE}'. Allowed values: amd64, arm64."
-            exit 1
+    *)
+        echo "ERROR: Invalid FLEXSERV_ARCH_CODE='${FLEXSERV_ARCH_CODE}'. Allowed values: amd64, arm64."
+        exit 1
         ;;
     esac
 else
     case "${RAW_ARCH}" in
-        x86_64|amd64)
-            ARCH_CODE="amd64"
+    x86_64 | amd64)
+        ARCH_CODE="amd64"
         ;;
-        aarch64|arm64)
-            ARCH_CODE="arm64"
+    aarch64 | arm64)
+        ARCH_CODE="arm64"
         ;;
-        armv8*|armv9*)
-            ARCH_CODE="arm64"
-            echo "WARNING: Architecture '${RAW_ARCH}' mapped to 'arm64'. Verify your userland/container compatibility."
+    armv8* | armv9*)
+        ARCH_CODE="arm64"
+        echo "WARNING: Architecture '${RAW_ARCH}' mapped to 'arm64'. Verify your userland/container compatibility."
         ;;
-        armv7*|armv6*|armhf|armel|i386|i686|x86|ppc*|s390*|riscv*|mips*)
-            echo "WARNING: Incompatible architecture '${RAW_ARCH}' for supported images (amd64, arm64)."
-            echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 only if you intentionally want to override."
-            exit 1
+    armv7* | armv6* | armhf | armel | i386 | i686 | x86 | ppc* | s390* | riscv* | mips*)
+        echo "WARNING: Incompatible architecture '${RAW_ARCH}' for supported images (amd64, arm64)."
+        echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 only if you intentionally want to override."
+        exit 1
         ;;
-        *)
-            echo "WARNING: Unrecognized architecture '${RAW_ARCH}'. Automatic fallback is disabled to prevent wrong-image startup."
-            echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 to override explicitly."
-            exit 1
+    *)
+        echo "WARNING: Unrecognized architecture '${RAW_ARCH}'. Automatic fallback is disabled to prevent wrong-image startup."
+        echo "Set FLEXSERV_ARCH_CODE=amd64 or FLEXSERV_ARCH_CODE=arm64 to override explicitly."
+        exit 1
         ;;
     esac
 fi
@@ -426,31 +465,9 @@ echo "FlexServ running on compute node: $(hostname):${FLEXSERV_PORT}"
 echo "Forwarding to login node port: ${LOGIN_PORT}"
 echo ""
 
-# Create a reverse tunnel on each login node
-if [ -z "${LOGIN_NODE_PREFIX:-}" ]; then
-    echo "ERROR: LOGIN_NODE_PREFIX is not set. Export it before running (e.g. export LOGIN_NODE_PREFIX=pitzer-login0)"
-    exit 1
-fi
-LOGIN_NODE_COUNT=${LOGIN_NODE_COUNT:-4}
-for i in $(seq 1 $LOGIN_NODE_COUNT); do
-    ssh -o StrictHostKeyChecking=no \
-        -o ConnectTimeout=3 \
-        -o ExitOnForwardFailure=yes \
-        -q -f -g -N \
-        -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
-        "${LOGIN_NODE_PREFIX}${i}" || true
-done
+setup_reverse_tunnels
 
 HPC_HOST=${HPC_HOST:-"${NODE_HOSTNAME_DOMAIN}"}
-
-protocol="http"
-if [ "$ENABLE_HTTPS" -ne 0 ]; then
-    protocol="https"
-    export TLS_CERT="${TAP_CERTFILE}"
-    export TLS_KEY="${TAP_KEYFILE:-${TAP_CERTFILE}}"
-    echo "Gateway TLS cert: ${TLS_CERT}"
-    echo "Gateway TLS key:  ${TLS_KEY}"
-fi
 
 echo ""
 echo "======================================================================"
@@ -468,9 +485,7 @@ echo "Service will be available on port ${FLEXSERV_PORT}"
 cleanup() {
     echo ""
     echo "Shutting down..."
-    if [ -n "${LOGIN_PORT:-}" ]; then
-        if [ "${TAP_AVAILABLE:-0}" -eq 1 ]; then tap_release_port "${LOGIN_PORT}" || true; fi
-    fi
+    cleanup_site_resources
     echo "✓ Cleanup complete"
 }
 trap cleanup EXIT INT TERM
@@ -493,7 +508,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
     MASTER_PORT=$(
         srun --nodes=1 --ntasks=1 -w "$MASTER_ADDR" \
-        bash -lc 'python - << "PY"
+            bash -lc 'python - << "PY"
 import socket, random
 for _ in range(200):
     p = random.randint(20000, 45000)
@@ -524,7 +539,7 @@ PY'
     fi
 fi
 
-export VENV_PATH=${VENV_PATH:-/venvs}
+export VENV_PATH=${VENV_PATH:-$WORK/venvs}
 echo "VENV_PATH=${VENV_PATH}"
 
 export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-/work/projects/aci/cic/apps/flexserv/patches/backend}
@@ -580,22 +595,22 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L || true
 
 case "${MODEL_NAME}" in
-    FLEX:PRI:*|FLEX:PUB:*)
+FLEX:PRI:* | FLEX:PUB:*)
     ;;
-    *)
-        MODEL_NAME="FLEX:PRI:${MODEL_NAME}"
+*)
+    MODEL_NAME="FLEX:PRI:${MODEL_NAME}"
     ;;
 esac
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     DIRECT_BACKEND_MODEL_NAME="${MODEL_NAME}"
     case "${DIRECT_BACKEND_MODEL_NAME}" in
-        FLEX:PRI:*)
-            DIRECT_BACKEND_MODEL_NAME="${DIRECT_BACKEND_MODEL_NAME#FLEX:PRI:}"
+    FLEX:PRI:*)
+        DIRECT_BACKEND_MODEL_NAME="${DIRECT_BACKEND_MODEL_NAME#FLEX:PRI:}"
         ;;
-        FLEX:PUB:*)
-            echo "ERROR: distributed direct-backend mode cannot resolve public-pool FlexServ IDs. Use a private model or disable --distributed."
-            exit 1
+    FLEX:PUB:*)
+        echo "ERROR: distributed direct-backend mode cannot resolve public-pool FlexServ IDs. Use a private model or disable --distributed."
+        exit 1
         ;;
     esac
 
