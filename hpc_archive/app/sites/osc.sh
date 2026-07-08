@@ -1,16 +1,13 @@
 concrete_setup_environment() {
-    export VENV_PATH=${VENV_PATH:-/venvs}
-    export HPC_HOST=${HPC_HOST:-${OSC_MACHINE:-pitzer}-login01.hpc.osc.edu}
-
-    export LOGIN_NODE_PREFIX=${LOGIN_NODE_PREFIX:-${OSC_MACHINE:-pitzer}-login0}
-    export LOGIN_NODE_COUNT=${LOGIN_NODE_COUNT:-4}
+    export VENV_PATH=${VENV_PATH:-"/venvs"}
+    export HPC_HOST=${HPC_HOST:-"$(get_cluster_name)-login01.hpc.osc.edu"}
 
     export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"${HOME}/flexserv/models"}
     export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${HOME}/flexserv/models"}
     export APPTAINER_IMAGE="${APPTAINER_IMAGE:-"${HOME}/flexserv/flexserv.sif"}"
 
-    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"/work/projects/aci/cic/apps/flexserv/patches/backend"}
-    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"/work/projects/aci/cic/apps/flexserv/patches/gateway"}
+    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"${HOME}/flexserv/patches/backend"}
+    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"${HOME}/flexserv/patches/gateway"}
 }
 
 concrete_prepare_apptainer() {
@@ -22,8 +19,8 @@ concrete_prepare_apptainer() {
         return 0
     fi
 
-    echo "Apptainer not found in PATH, attempting to load module..."
-    module load apptainer 2>/dev/null || module load singularity 2>/dev/null
+    echo "ERROR: Apptainer not found in PATH"
+    return 1
 }
 
 file_contains_private_key() {
@@ -88,14 +85,38 @@ concrete_setup_random_token() {
     export RAND_TOKEN=$(echo "$$ $RANDOM $(date)" | sha1sum | head -c 64)
 }
 
+get_cluster_name() {
+    if [ -n "${SLURM_CLUSTER_NAME:-}" ]; then
+        echo "${SLURM_CLUSTER_NAME}"
+    elif command -v scontrol >/dev/null 2>&1; then
+        scontrol show config 2>/dev/null | grep -i '^ClusterName' | awk '{print($3);}'
+    fi
+}
+
+get_number_of_login_nodes() {
+    getent ahostsv4 $(get_cluster_name).osc.edu | awk '{ print($1); }' | uniq | wc -l
+}
+
 generate_login_nodes() {
-    local login_node_prefix="${LOGIN_NODE_PREFIX}"
-    local login_node_count="${LOGIN_NODE_COUNT}"
+    local login_node_prefix="$(get_cluster_name)-login0"
+    local login_node_count="$(get_number_of_login_nodes)"
     local i
 
     for i in $(seq 1 "${login_node_count}"); do
         echo "${login_node_prefix}${i}"
     done
+}
+
+list_listening_ports() {
+    # Attepmt to list listening ports using 'ss
+    if command -v ss >/dev/null 2>&1; then
+        ss -Htln
+    elif command -v netstat >/dev/null 2>&1; then # Fallback to 'netstat' if 'ss' is not available
+        netstat -Htln
+    else
+        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports."
+        return 1
+    fi
 }
 
 concrete_setup_login_port() {
@@ -125,7 +146,8 @@ concrete_setup_login_port() {
     tmp=$(mktemp)
 
     for login_node in $(generate_login_nodes); do
-        ssh -q "${login_node}" "ss -Htln" | awk -v start="${start_port}" -v end="${end_port}" '
+        # List listening ports on the login node and filter them to find ports in the specified range
+        ssh -q "${login_node}" "$(declare -f list_listening_ports); list_listening_ports" | awk -v start="${start_port}" -v end="${end_port}" '
             {
                 split($4, a, ":")
                 port=a[length(a)]
@@ -163,11 +185,11 @@ concrete_setup_reverse_tunnels() {
 
     # Create a reverse tunnel on each login node
     for login_node in $(generate_login_nodes); do
-        ssh -o StrictHostKeyChecking=no \
+        ssh -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=3 \
             -o ExitOnForwardFailure=yes \
             -q -f -g -N \
-            -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
+            -R "127.0.0.1:${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
             "${login_node}" || true
     done
 }

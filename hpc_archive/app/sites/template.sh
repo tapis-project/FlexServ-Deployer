@@ -98,6 +98,18 @@ generate_login_nodes() {
     done
 }
 
+list_listening_ports() {
+    # Attepmt to list listening ports using 'ss
+    if command -v ss >/dev/null 2>&1; then
+        ss -Htln
+    elif command -v netstat >/dev/null 2>&1; then # Fallback to 'netstat' if 'ss' is not available
+        netstat -Htln
+    else
+        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports."
+        return 1
+    fi
+}
+
 concrete_setup_login_port() {
     local start_port=60000
     local end_port=65000
@@ -125,7 +137,8 @@ concrete_setup_login_port() {
     tmp=$(mktemp)
 
     for login_node in $(generate_login_nodes); do
-        ssh -q "${login_node}" "ss -Htln" | awk -v start="${start_port}" -v end="${end_port}" '
+        # List listening ports on the login node and filter them to find ports in the specified range
+        ssh -q "${login_node}" "$(declare -f list_listening_ports); list_listening_ports" | awk -v start="${start_port}" -v end="${end_port}" '
             {
                 split($4, a, ":")
                 port=a[length(a)]
@@ -163,11 +176,11 @@ concrete_setup_reverse_tunnels() {
 
     # Create a reverse tunnel on each login node
     for login_node in $(generate_login_nodes); do
-        ssh -o StrictHostKeyChecking=no \
+        ssh -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=3 \
             -o ExitOnForwardFailure=yes \
             -q -f -g -N \
-            -R "${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
+            -R "127.0.0.1:${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT}" \
             "${login_node}" || true
     done
 }
