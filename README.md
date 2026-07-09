@@ -233,46 +233,7 @@ let cancelled = deployment.stop().await?;    // cancel current job
 let snapshot = deployment.monitor().await?;  // status + full job details
 ```
 
-### OSC / Pitzer Setup
-
-For OSC clusters, the archive runner uses these runtime differences from the default flow:
-
-- use `apptainer` from `PATH` when available, with module fallbacks otherwise
-- skip TAP-only setup when `/share/doc/slurm/tap_functions` is absent
-- set `LOGIN_NODE_PREFIX` explicitly so login-node hostnames are cluster-specific
-
-OSC examples:
-
-- Pitzer: `LOGIN_NODE_PREFIX=pitzer-login0` `HPC_HOST=pitzer-login01.hpc.osc.edu` and `--device cpu`
-- Ascend: `LOGIN_NODE_PREFIX=ascend-login0` `HPC_HOST=ascend-login01.hpc.osc.edu`
-- Cardinal: `LOGIN_NODE_PREFIX=cardinal-login0` `HPC_HOST=cardinal-login01.hpc.osc.edu`
-
-Only Pitzer needs the current `--device cpu` fallback. Ascend and Cardinal can use the same runner with the cluster-specific prefix and normal accelerator settings.
-
-Example launch overrides:
-
-```bash
-export APPTAINER_CACHEDIR=$HOME/flexserv_cache
-export PRI_MODEL_HOST=$HOME/flexserv/models
-export PUB_MODEL_HOST=$HOME/flexserv/models
-export APPTAINER_IMAGE=/path/to/apptainer/image.sif
-export LOGIN_NODE_PREFIX=pitzer-login0
-export HPC_HOST=pitzer-login01.hpc.osc.edu
-
-cd /path/to/flexserv/repo/FlexServ-Deployer/hpc_archive/app
-./run_flexserv.sh --login-port 18080 --secret flexserv --device cpu
-```
-
-You can test from a Pitzer login node:
-
-```bash
-curl -H "x-flexserv-secret: flexserv" http://localhost:18080/v1/flexserv/health
-curl -s \
-    -H "x-flexserv-secret: flexserv" \
-    -H "Content-Type: application/json" \
-    -d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"What is 2+2? Answer in one sentence."}]}' \
-    http://localhost:18080/v1/chat/completions
-```
+See [hpc_archive/README.md](hpc_archive/README.md) for direct HPC archive runner usage, including TACC, OSC, and site-template instructions.
 
 ### Calling the pod HTTP API
 

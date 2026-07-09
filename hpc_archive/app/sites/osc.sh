@@ -1,4 +1,6 @@
 concrete_setup_environment() {
+    # In tested OSC jobs, $SCRATCH/$WORK were not available; keep defaults under
+    # $HOME and let callers override these paths when they have project storage.
     export VENV_PATH=${VENV_PATH:-"/venvs"}
     export HPC_HOST=${HPC_HOST:-"$(get_cluster_name)-login01.hpc.osc.edu"}
 
@@ -30,6 +32,7 @@ file_contains_private_key() {
 set_certfile() {
     if [ -z "${FLEXSERV_CERTFILE:-}" ]; then
         echo "ERROR: FLEXSERV_CERTFILE is not set. HTTPS cannot be enabled."
+        echo "Set FLEXSERV_CERTFILE=/path/to/cert.pem and, if needed, FLEXSERV_KEYFILE=/path/to/key.pem."
         return 1
     fi
 
@@ -51,6 +54,7 @@ set_cert_key() {
     else
         if [ -z "${FLEXSERV_KEYFILE:-}" ]; then
             echo "ERROR: FLEXSERV_CERTFILE does not contain a private key and FLEXSERV_KEYFILE is not set. HTTPS cannot be enabled."
+            echo "Set FLEXSERV_KEYFILE=/path/to/key.pem or use a combined cert/key PEM file."
             return 1
         fi
 
@@ -86,6 +90,8 @@ concrete_setup_random_token() {
 }
 
 get_cluster_name() {
+    # OSC Slurm exposes the cluster name (pitzer, ascend, cardinal). Fall back to
+    # scontrol for shells where SLURM_CLUSTER_NAME was not exported.
     if [ -n "${SLURM_CLUSTER_NAME:-}" ]; then
         echo "${SLURM_CLUSTER_NAME}"
     elif command -v scontrol >/dev/null 2>&1; then
@@ -94,6 +100,8 @@ get_cluster_name() {
 }
 
 get_number_of_login_nodes() {
+    # OSC cluster hostnames resolve to the current login-node addresses, so DNS
+    # gives us the login-node count without hardcoding per-cluster values.
     getent ahostsv4 $(get_cluster_name).osc.edu | awk '{ print($1); }' | uniq | wc -l
 }
 
@@ -108,13 +116,13 @@ generate_login_nodes() {
 }
 
 list_listening_ports() {
-    # Attepmt to list listening ports using 'ss
+    # Almost all modern Linux systems provide ss; netstat covers older environments.
     if command -v ss >/dev/null 2>&1; then
         ss -Htln
-    elif command -v netstat >/dev/null 2>&1; then # Fallback to 'netstat' if 'ss' is not available
-        netstat -Htln
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln
     else
-        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports."
+        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports." >&2
         return 1
     fi
 }

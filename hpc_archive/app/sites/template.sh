@@ -99,13 +99,13 @@ generate_login_nodes() {
 }
 
 list_listening_ports() {
-    # Attepmt to list listening ports using 'ss
+    # Almost all modern Linux systems provide ss; netstat covers older environments.
     if command -v ss >/dev/null 2>&1; then
         ss -Htln
-    elif command -v netstat >/dev/null 2>&1; then # Fallback to 'netstat' if 'ss' is not available
-        netstat -Htln
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln
     else
-        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports."
+        echo "ERROR: Neither 'ss' nor 'netstat' command is available to list listening ports." >&2
         return 1
     fi
 }
