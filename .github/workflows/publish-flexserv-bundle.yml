@@ -44,6 +44,7 @@ jobs:
           mkdir -p dist/package/app
 
           cp hpc_archive/tapisjob.manifest dist/package/tapisjob.manifest
+          cp -r hpc_archive/app/sites dist/package/app/sites
           cp hpc_archive/app/run_flexserv.sh dist/package/app/run_flexserv.sh
           chmod +x dist/package/app/run_flexserv.sh
 

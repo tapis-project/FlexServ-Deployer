@@ -85,7 +85,7 @@ concrete_setup_cert_tls() {
 
 concrete_setup_random_token() {
     # Random token generated
-    export RAND_TOKEN=$(echo "$$ $RANDOM $(date)" | sha1sum | head -c 64)
+    export RAND_TOKEN=$(echo "$$ $RANDOM $(date)" | sha1sum | awk '{print $1}')
 }
 
 generate_login_nodes() {
