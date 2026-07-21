@@ -50,7 +50,7 @@ jobs:
 
           (
               cd dist/package
-              zip -r "../${{ steps.meta.outputs.zip_name }}" tapisjob.manifest app/run_flexserv.sh
+              zip -r "../${{ steps.meta.outputs.zip_name }}" tapisjob.manifest app
           )
 
           echo "Created dist/${{ steps.meta.outputs.zip_name }}"
