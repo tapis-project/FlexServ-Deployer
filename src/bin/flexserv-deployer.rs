@@ -543,16 +543,19 @@ fn jobs_config() -> CliResult<configuration::Configuration> {
 }
 
 fn tapis_token() -> CliResult<String> {
-    // Read the token from saved config.
+    // Prefer TAPIS_TOKEN from the environment, then the saved config.
     // Otherwise return an auth-specific error.
+    if let Some(token) = env_var_if_set("TAPIS_TOKEN") {
+        return Ok(token);
+    }
 
     if let Some(saved_config) = read_saved_config()? {
-        saved_config
-            .tapis_token
-            .ok_or_else(|| anyhow!("Missing token; please authenticate first"))
-    } else {
-        Err(anyhow!("Missing token; please authenticate first"))
+        if let Some(token) = saved_config.tapis_token {
+            return Ok(token);
+        }
     }
+
+    Err(anyhow!("Missing token; please authenticate first"))
 }
 
 fn read_saved_config() -> CliResult<Option<SavedConfig>> {
@@ -723,13 +726,21 @@ fn effective_backend(backend: Option<BackendKind>) -> CliResult<BackendKind> {
 
 fn effective_hf_token() -> CliResult<Option<String>> {
     // Resolve the Hugging Face token.
-    // Use `SavedConfig.hf_token`.
+    // Prefer HF_TOKEN from the environment, then the saved config.
     // Otherwise return `None`, since HF token can be optional for some deployments.
+    if let Some(token) = env_var_if_set("HF_TOKEN") {
+        return Ok(Some(token));
+    }
+
     if let Some(saved_config) = read_saved_config()? {
         Ok(saved_config.hf_token)
     } else {
         Ok(None)
     }
+}
+
+fn env_var_if_set(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 fn effective_output() -> CliResult<OutputFormat> {
@@ -1119,12 +1130,34 @@ fn print_cli_error(err: &anyhow::Error) {
     if is_auth_error(err) {
         eprintln!("Authentication error: {err}");
         eprintln!("--------------------------------");
-        eprintln!("Next steps: Run the following command to authenticate and retry:");
-        eprintln!("  flexserv-deployer manage authenticate <JWT_TOKEN>");
+        print_auth_next_steps();
     } else if let Some(deployment_error) = deployment_error_from_chain(err) {
         eprintln!("Deployment error: {deployment_error}");
     } else {
         eprintln!("Error: {err}");
+    }
+}
+
+fn print_auth_next_steps() {
+    let env_token_is_set = env_var_if_set("TAPIS_TOKEN").is_some();
+    let saved_token_is_set = read_saved_config()
+        .ok()
+        .flatten()
+        .and_then(|saved_config| saved_config.tapis_token)
+        .is_some();
+
+    if env_token_is_set {
+        eprintln!("TAPIS_TOKEN is set, but Tapis rejected it or it is not a valid Tapis JWT.");
+        eprintln!("Next steps: replace TAPIS_TOKEN with a fresh Tapis JWT and retry.");
+    } else if saved_token_is_set {
+        eprintln!("The saved manager Tapis token is set, but Tapis rejected it or it is not a valid Tapis JWT.");
+        eprintln!("Next steps: refresh the saved token and retry:");
+        eprintln!("  flexserv-deployer manage authenticate <JWT_TOKEN>");
+    } else {
+        eprintln!("No Tapis token is configured.");
+        eprintln!("Next steps: set one of the following and retry:");
+        eprintln!("  export TAPIS_TOKEN=<JWT_TOKEN>");
+        eprintln!("  flexserv-deployer manage authenticate <JWT_TOKEN>");
     }
 }
 
