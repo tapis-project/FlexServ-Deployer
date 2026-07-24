@@ -1,20 +1,30 @@
 concrete_setup_environment() {
-    # In tested OSC jobs, $SCRATCH/$WORK were not available; keep defaults under
-    # $HOME and let callers override these paths when they have project storage.
+    local flexserv_root
+
+    flexserv_root="$(get_flexserv_root)" || return 1
+
     export VENV_PATH=${VENV_PATH:-"/venvs"}
     export HPC_HOST=${HPC_HOST:-"$(get_cluster_name)-login01.hpc.osc.edu"}
 
-    export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"${HOME}/flexserv/models"}
-    export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${HOME}/flexserv/models"}
-    export APPTAINER_IMAGE="${APPTAINER_IMAGE:-"${HOME}/flexserv/flexserv.sif"}"
+    export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"${flexserv_root}/models/public"}
+    export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${flexserv_root}/models/private"}
+    export APPTAINER_IMAGE="${APPTAINER_IMAGE:-"${flexserv_root}/flexserv.sif"}"
 
-    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"${HOME}/flexserv/patches/backend"}
-    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"${HOME}/flexserv/patches/gateway"}
+    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"${flexserv_root}/patches/backend"}
+    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"${flexserv_root}/patches/gateway"}
+
+    mkdir -p "${flexserv_root}" "${PUB_MODEL_HOST}" "${PRI_MODEL_HOST}"
+    chmod 700 "${flexserv_root}" 2>/dev/null || true
 }
 
 concrete_prepare_apptainer() {
-    export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-"${HOME}/flexserv_cache"}
+    local flexserv_root
+
+    flexserv_root="$(get_flexserv_root)" || return 1
+
+    export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-"${flexserv_root}/apptainer_cache"}
     mkdir -p "$APPTAINER_CACHEDIR"
+    chmod 700 "$APPTAINER_CACHEDIR" 2>/dev/null || true
 
     if command -v apptainer >/dev/null 2>&1; then
         echo "Apptainer already in PATH: $(apptainer --version)"
@@ -97,6 +107,28 @@ get_cluster_name() {
     elif command -v scontrol >/dev/null 2>&1; then
         scontrol show config 2>/dev/null | grep -i '^ClusterName' | awk '{print($3);}'
     fi
+}
+
+get_project_name() {
+    local project_name
+
+    if [ -n "${OSC_ACCOUNT_NAME:-}" ]; then
+        project_name="${OSC_ACCOUNT_NAME}"
+    elif [ -n "${SLURM_JOB_ACCOUNT:-}" ]; then
+        project_name="${SLURM_JOB_ACCOUNT}"
+    else
+        echo "ERROR: Could not determine OSC project. Set OSC_ACCOUNT_NAME or run inside a Slurm job with SLURM_JOB_ACCOUNT." >&2
+        return 1
+    fi
+
+    printf '%s\n' "${project_name}" | tr '[:lower:]' '[:upper:]'
+}
+
+get_flexserv_root() {
+    local project_name
+
+    project_name="$(get_project_name)" || return 1
+    echo "/fs/scratch/${project_name}/${USER}/flexserv"
 }
 
 get_number_of_login_nodes() {

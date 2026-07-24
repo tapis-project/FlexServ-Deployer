@@ -94,30 +94,31 @@ The OSC site script is intended for Pitzer, Ascend, and Cardinal. It:
 - generates a FlexServ token when one is not provided
 - selects a login-node port in the `60000-65000` range
 - detects the OSC cluster from Slurm
+- detects the OSC project from `OSC_ACCOUNT_NAME` or `SLURM_JOB_ACCOUNT`
 - uses OSC DNS to determine how many login nodes to target
 - creates reverse SSH tunnels to the OSC login nodes
 
-OSC storage defaults are under `$HOME`:
+OSC storage defaults are under `/fs/scratch/<PROJECT>/<USER>/flexserv`, where `<PROJECT>` comes from `OSC_ACCOUNT_NAME` if set, or `SLURM_JOB_ACCOUNT` inside a Slurm job. The project name is normalized to uppercase for the filesystem path.
 
 ```bash
-APPTAINER_CACHEDIR=$HOME/flexserv_cache
-PRI_MODEL_HOST=$HOME/flexserv/models
-PUB_MODEL_HOST=$HOME/flexserv/models
-APPTAINER_IMAGE=$HOME/flexserv/flexserv.sif
+OSC_ACCOUNT_NAME=PAS2271
+APPTAINER_CACHEDIR=/fs/scratch/PAS2271/$USER/flexserv/apptainer_cache
+PRI_MODEL_HOST=/fs/scratch/PAS2271/$USER/flexserv/models/private
+PUB_MODEL_HOST=/fs/scratch/PAS2271/$USER/flexserv/models/public
+APPTAINER_IMAGE=/fs/scratch/PAS2271/$USER/flexserv/flexserv.sif
 ```
 
-If `$HOME/flexserv/flexserv.sif` does not exist yet, pull the image first as shown in [Pulling The Apptainer Image](#pulling-the-apptainer-image), or set `APPTAINER_IMAGE` to another `.sif` path.
+If the default `APPTAINER_IMAGE` does not exist yet, pull the image first as shown in [Pulling The Apptainer Image](#pulling-the-apptainer-image), or set `APPTAINER_IMAGE` to another `.sif` path.
 
-These defaults were chosen because `$SCRATCH` and `$WORK` were not available in the tested OSC job environment. Models, container images, and Apptainer caches can be large, so watch your `$HOME` quota. If you have a larger OSC project or shared filesystem, override the paths before launching:
+Models, container images, and Apptainer caches can be large, so check the quota and purge policy for your OSC scratch project. If you have another suitable project or shared filesystem, override the paths before launching:
 
 ```bash
+export OSC_ACCOUNT_NAME=PAS2271
 export APPTAINER_CACHEDIR=/path/to/cache
 export PRI_MODEL_HOST=/path/to/private/models
 export PUB_MODEL_HOST=/path/to/public/models
 export APPTAINER_IMAGE=/path/to/flexserv.sif
 ```
-
-Also check the quota and purge policy for any storage location you choose.
 
 By default, OSC launches use HTTP. If you pass `--enable-https`, you must provide valid certificate material:
 
