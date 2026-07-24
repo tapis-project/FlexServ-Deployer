@@ -740,7 +740,9 @@ fn effective_hf_token() -> CliResult<Option<String>> {
 }
 
 fn env_var_if_set(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn effective_output() -> CliResult<OutputFormat> {
@@ -891,12 +893,18 @@ async fn list_jobs(limit: i32) -> CliResult<()> {
         return Ok(());
     }
 
-    print_job_row(&["JOB UUID", "NAME", "STATUS"]);
+    print_job_row(&["JOB UUID", "NAME", "STATUS", "SUBMITTED", "SYSTEM"]);
     for job in jobs {
+        let job_uuid = truncated(&job.uuid.clone().unwrap_or_else(|| "-".to_string()), 16);
+        let job_name = truncated(job.name.as_deref().unwrap_or("-"), 32);
+        let submitted = submitted_at(job.created.as_deref());
+        let system = truncated(job.exec_system_id.as_deref().unwrap_or("-"), 20);
         print_job_row(&[
-            job.uuid.as_deref().unwrap_or("-"),
-            job.name.as_deref().unwrap_or("-"),
+            &job_uuid,
+            &job_name,
             job_status(&job).as_deref().unwrap_or("-"),
+            &submitted,
+            &system,
         ]);
     }
 
@@ -1106,8 +1114,38 @@ fn print_deployment_result(format: OutputFormat, result: &DeploymentResult) -> C
     Ok(())
 }
 
-fn print_job_row(columns: &[&str; 3]) {
-    println!("{:<46}  {:<24}  {:<12}", columns[0], columns[1], columns[2]);
+fn truncated(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let keep = max_chars.saturating_sub(3);
+    let mut short = value.chars().take(keep).collect::<String>();
+    short.push_str("...");
+    short
+}
+
+fn submitted_at(created: Option<&str>) -> String {
+    let Some(created) = created else {
+        return "-".to_string();
+    };
+
+    let without_fraction = created
+        .split_once('.')
+        .map(|(head, _)| head)
+        .unwrap_or(created);
+    let mut compact = without_fraction.replace('T', " ");
+    if created.ends_with('Z') && !compact.ends_with('Z') {
+        compact.push('Z');
+    }
+    compact
+}
+
+fn print_job_row(columns: &[&str; 5]) {
+    println!(
+        "{:<16}  {:<32}  {:<12}  {:<20}  {:<20}",
+        columns[0], columns[1], columns[2], columns[3], columns[4]
+    );
 }
 
 fn print_pod_row(columns: &[&str; 4]) {
@@ -1150,7 +1188,9 @@ fn print_auth_next_steps() {
         eprintln!("TAPIS_TOKEN is set, but Tapis rejected it or it is not a valid Tapis JWT.");
         eprintln!("Next steps: replace TAPIS_TOKEN with a fresh Tapis JWT and retry.");
     } else if saved_token_is_set {
-        eprintln!("The saved manager Tapis token is set, but Tapis rejected it or it is not a valid Tapis JWT.");
+        eprintln!(
+            "The saved manager Tapis token is set, but Tapis rejected it or it is not a valid Tapis JWT."
+        );
         eprintln!("Next steps: refresh the saved token and retry:");
         eprintln!("  flexserv-deployer manage authenticate <JWT_TOKEN>");
     } else {
