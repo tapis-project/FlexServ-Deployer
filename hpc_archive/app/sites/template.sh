@@ -185,6 +185,10 @@ concrete_setup_reverse_tunnels() {
     done
 }
 
+concrete_setup_access_url() {
+    export FLEXSERV_ACCESS_URL="${protocol}://${NODE_HOSTNAME_DOMAIN}:${LOGIN_PORT}"
+}
+
 release_login_port() {
     if [ -n "${LOGIN_PORT_LOCKFILE:-}" ]; then
         rmdir "${LOGIN_PORT_LOCKFILE}" 2>/dev/null || true

@@ -147,6 +147,22 @@ generate_login_nodes() {
     done
 }
 
+get_compute_node_fqdn() {
+    hostname -f
+}
+
+concrete_setup_access_url() {
+    local compute_node_fqdn
+
+    compute_node_fqdn="$(get_compute_node_fqdn)"
+
+    export OSC_ONDEMAND_HOST=${OSC_ONDEMAND_HOST:-"ondemand.osc.edu"}
+
+    export FLEXSERV_ACCESS_URL="https://${OSC_ONDEMAND_HOST}/rnode/${compute_node_fqdn}/${LOCAL_PORT}/"
+
+    echo "OSC Open OnDemand access URL: ${FLEXSERV_ACCESS_URL}"
+}
+
 list_listening_ports() {
     # Almost all modern Linux systems provide ss; netstat covers older environments.
     if command -v ss >/dev/null 2>&1; then

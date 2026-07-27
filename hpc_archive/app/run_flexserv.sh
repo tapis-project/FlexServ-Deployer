@@ -228,6 +228,15 @@ setup_reverse_tunnels() {
     concrete_setup_reverse_tunnels
 }
 
+setup_access_url() {
+    concrete_setup_access_url
+
+    if [ -z "${FLEXSERV_ACCESS_URL:-}" ]; then
+        echo "ERROR: FLEXSERV_ACCESS_URL is not set after access URL setup"
+        exit 1
+    fi
+}
+
 cleanup_site_resources() {
     concrete_cleanup_site_resources
 }
@@ -467,13 +476,13 @@ echo ""
 
 setup_reverse_tunnels
 
-HPC_HOST=${HPC_HOST:-"${NODE_HOSTNAME_DOMAIN}"}
+setup_access_url
 
 echo ""
 echo "======================================================================"
 echo "ACCESS INFORMATION"
 echo "======================================================================"
-echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  FlexServ token: ${FLEXSERV_SECRET}"
+echo "FlexServ address: ${FLEXSERV_ACCESS_URL}  FlexServ token: ${FLEXSERV_SECRET}"
 echo "======================================================================"
 echo ""
 

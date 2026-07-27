@@ -63,6 +63,10 @@ concrete_setup_reverse_tunnels() {
     done
 }
 
+concrete_setup_access_url() {
+    export FLEXSERV_ACCESS_URL="${protocol}://${NODE_HOSTNAME_DOMAIN}:${LOGIN_PORT}"
+}
+
 concrete_cleanup_site_resources() {
     if [ -n "${LOGIN_PORT:-}" ]; then
         tap_release_port "${LOGIN_PORT}" || true
