@@ -196,11 +196,11 @@ setup_cert_tls() {
             exit 1
         fi
 
-        protocol="https"
+        export PROTOCOL="https"
         echo "Gateway TLS cert: ${TLS_CERT}"
         echo "Gateway TLS key:  ${TLS_KEY}"
     else
-        protocol="http"
+        export PROTOCOL="http"
     fi
 }
 

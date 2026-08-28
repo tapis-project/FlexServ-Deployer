@@ -86,12 +86,14 @@ set_cert_key() {
 
 concrete_setup_cert_tls() {
     if [ "$ENABLE_HTTPS" -eq 0 ]; then
-        echo "HTTPS is disabled."
+        echo "WARNING: HTTPS is managed by OSC Open OnDemand. Skipping TLS cert and key setup."
         return 0
+    else
+        echo "WARNING: HTTPS is enabled. FLEXSERV_CERTFILE and FLEXSERV_KEYFILE are obsolete on OSC. The TLS cert and key will be managed by OSC Open OnDemand."
     fi
 
-    set_certfile
-    set_cert_key
+    export TLS_CERT="${FLEXSERV_CERTFILE:-}"
+    export TLS_KEY="${FLEXSERV_KEYFILE:-}"
 }
 
 concrete_setup_random_token() {

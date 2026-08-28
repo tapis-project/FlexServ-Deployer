@@ -64,7 +64,7 @@ concrete_setup_reverse_tunnels() {
 }
 
 concrete_setup_access_url() {
-    export FLEXSERV_ACCESS_URL="${protocol}://${NODE_HOSTNAME_DOMAIN}:${LOGIN_PORT}"
+    export FLEXSERV_ACCESS_URL="${PROTOCOL}://${NODE_HOSTNAME_DOMAIN}:${LOGIN_PORT}"
 }
 
 concrete_cleanup_site_resources() {
