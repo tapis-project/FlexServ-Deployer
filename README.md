@@ -233,6 +233,8 @@ let cancelled = deployment.stop().await?;    // cancel current job
 let snapshot = deployment.monitor().await?;  // status + full job details
 ```
 
+See [hpc_archive/README.md](hpc_archive/README.md) for direct HPC archive runner usage, including TACC, OSC, and site-template instructions.
+
 ### Calling the pod HTTP API
 
 Once you have:
