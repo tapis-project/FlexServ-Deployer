@@ -211,7 +211,10 @@ async fn test_monitor_repeated() {
             pod_id, pod_url, ..
         } => {
             assert_eq!(pod_id, deployment.pod_id);
-            eprintln!("Second monitor OK -> pod_url: {:?}", pod_url);
+            eprintln!(
+                "Second monitor OK -> pod_url: {}",
+                pod_url.as_deref().unwrap_or("None")
+            );
         }
         _ => panic!("expected PodResult"),
     }

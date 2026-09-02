@@ -27,7 +27,7 @@
 //!
 //! Or: cargo run --example call_pod -- <POD_URL> <FLEXSERV_TOKEN>
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
