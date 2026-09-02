@@ -1,28 +1,29 @@
 concrete_setup_environment() {
-    local flexserv_root
+    local private_flexserv_root
+    local public_flexserv_root
 
-    flexserv_root="$(get_flexserv_root)" || return 1
+    private_flexserv_root="$(get_private_flexserv_root)" || return 1
+    public_flexserv_root="$(get_public_flexserv_root)" || return 1
 
     export VENV_PATH=${VENV_PATH:-"/venvs"}
-    export HPC_HOST=${HPC_HOST:-"$(get_cluster_name)-login01.hpc.osc.edu"}
 
-    export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"${flexserv_root}/models/public"}
-    export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${flexserv_root}/models/private"}
-    export APPTAINER_IMAGE="${APPTAINER_IMAGE:-"${flexserv_root}/flexserv.sif"}"
+    export PUB_MODEL_HOST=${PUB_MODEL_HOST:-"${public_flexserv_root}/models/public"}
+    export PRI_MODEL_HOST=${PRI_MODEL_HOST:-"${private_flexserv_root}/models/private"}
+    export APPTAINER_IMAGE="${APPTAINER_IMAGE:-"${public_flexserv_root}/flexserv.sif"}"
 
-    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"${flexserv_root}/patches/backend"}
-    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"${flexserv_root}/patches/gateway"}
+    export BACKEND_PATCH_PATH=${BACKEND_PATCH_PATH:-"${private_flexserv_root}/patches/backend"}
+    export LANDING_PAGE_PATH=${LANDING_PAGE_PATH:-"${private_flexserv_root}/patches/gateway"}
 
-    mkdir -p "${flexserv_root}" "${PUB_MODEL_HOST}" "${PRI_MODEL_HOST}"
-    chmod 700 "${flexserv_root}" 2>/dev/null || true
+    mkdir -p "${private_flexserv_root}" "${public_flexserv_root}" "${PUB_MODEL_HOST}" "${PRI_MODEL_HOST}"
+    chmod 700 "${private_flexserv_root}" 2>/dev/null || true
 }
 
 concrete_prepare_apptainer() {
-    local flexserv_root
+    local public_flexserv_root
 
-    flexserv_root="$(get_flexserv_root)" || return 1
+    public_flexserv_root="$(get_public_flexserv_root)" || return 1
 
-    export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-"${flexserv_root}/apptainer_cache"}
+    export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-"${public_flexserv_root}/apptainer_cache"}
     mkdir -p "$APPTAINER_CACHEDIR"
     chmod 700 "$APPTAINER_CACHEDIR" 2>/dev/null || true
 
@@ -39,61 +40,12 @@ file_contains_private_key() {
     grep -Eq -- "-----BEGIN (RSA |EC |ENCRYPTED |)PRIVATE KEY-----" "$1"
 }
 
-set_certfile() {
-    if [ -z "${FLEXSERV_CERTFILE:-}" ]; then
-        echo "ERROR: FLEXSERV_CERTFILE is not set. HTTPS cannot be enabled."
-        echo "Set FLEXSERV_CERTFILE=/path/to/cert.pem and, if needed, FLEXSERV_KEYFILE=/path/to/key.pem."
-        return 1
-    fi
-
-    # File not exisiting check
-    if [ ! -f "${FLEXSERV_CERTFILE}" ]; then
-        echo "ERROR: FLEXSERV_CERTFILE is set but does not exist: ${FLEXSERV_CERTFILE}"
-        return 1
-    fi
-
-    export TLS_CERT="${FLEXSERV_CERTFILE}"
-}
-
-set_cert_key() {
-    # Check if the cert file contains a private key
-    local certkey
-
-    if file_contains_private_key "${FLEXSERV_CERTFILE}"; then
-        certkey="${FLEXSERV_CERTFILE}"
-    else
-        if [ -z "${FLEXSERV_KEYFILE:-}" ]; then
-            echo "ERROR: FLEXSERV_CERTFILE does not contain a private key and FLEXSERV_KEYFILE is not set. HTTPS cannot be enabled."
-            echo "Set FLEXSERV_KEYFILE=/path/to/key.pem or use a combined cert/key PEM file."
-            return 1
-        fi
-
-        if [ ! -f "${FLEXSERV_KEYFILE}" ]; then
-            echo "ERROR: FLEXSERV_KEYFILE is set but does not exist: ${FLEXSERV_KEYFILE}"
-            return 1
-        fi
-
-        if ! file_contains_private_key "${FLEXSERV_KEYFILE}"; then
-            echo "ERROR: FLEXSERV_KEYFILE does not contain a private key: ${FLEXSERV_KEYFILE}"
-            return 1
-        fi
-
-        certkey="${FLEXSERV_KEYFILE}"
-    fi
-
-    export TLS_KEY="${certkey}"
-}
-
 concrete_setup_cert_tls() {
-    if [ "$ENABLE_HTTPS" -eq 0 ]; then
-        echo "WARNING: HTTPS is managed by OSC Open OnDemand. Skipping TLS cert and key setup."
-        return 0
-    else
-        echo "WARNING: HTTPS is enabled. FLEXSERV_CERTFILE and FLEXSERV_KEYFILE are obsolete on OSC. The TLS cert and key will be managed by OSC Open OnDemand."
+    if [ "$ENABLE_HTTPS" -ne 0 ]; then
+        echo "WARNING: Ignoring --enable-https on OSC; Open OnDemand manages HTTPS."
+        ENABLE_HTTPS=0
     fi
-
-    export TLS_CERT="${FLEXSERV_CERTFILE:-}"
-    export TLS_KEY="${FLEXSERV_KEYFILE:-}"
+    unset TLS_CERT TLS_KEY
 }
 
 concrete_setup_random_token() {
@@ -126,11 +78,18 @@ get_project_name() {
     printf '%s\n' "${project_name}" | tr '[:lower:]' '[:upper:]'
 }
 
-get_flexserv_root() {
+get_private_flexserv_root() {
     local project_name
 
     project_name="$(get_project_name)" || return 1
     echo "/fs/scratch/${project_name}/${USER}/flexserv"
+}
+
+get_public_flexserv_root() {
+    local project_name
+
+    project_name="$(get_project_name)" || return 1
+    echo "/fs/scratch/${project_name}/flexserv"
 }
 
 get_number_of_login_nodes() {
@@ -184,7 +143,10 @@ concrete_setup_login_port() {
     local login_node
     local port
 
-    LOCKDIR="${HOME}/flexserv_cache/cache/locks"
+    local public_flexserv_root
+    public_flexserv_root="$(get_public_flexserv_root)" || return 1
+
+    LOCKDIR="${public_flexserv_root}/flexserv_cache/cache/locks"
     mkdir -p "${LOCKDIR}"
 
     # This is the remote port users will hit (on login nodes)

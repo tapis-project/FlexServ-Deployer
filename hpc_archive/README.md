@@ -98,37 +98,37 @@ The OSC site script is intended for Pitzer, Ascend, and Cardinal. It:
 - uses OSC DNS to determine how many login nodes to target
 - creates reverse SSH tunnels to the OSC login nodes
 
-OSC storage defaults are under `/fs/scratch/<PROJECT>/<USER>/flexserv`, where `<PROJECT>` comes from `OSC_ACCOUNT_NAME` if set, or `SLURM_JOB_ACCOUNT` inside a Slurm job. The project name is normalized to uppercase for the filesystem path.
+OSC uses the allocation from `OSC_ACCOUNT_NAME` when set; otherwise it uses the current job's `SLURM_JOB_ACCOUNT`. The project name is normalized to uppercase. Set `OSC_ACCOUNT_NAME` when a different allocation should be used:
 
 ```bash
-OSC_ACCOUNT_NAME=PAS2271
-APPTAINER_CACHEDIR=/fs/scratch/PAS2271/$USER/flexserv/apptainer_cache
-PRI_MODEL_HOST=/fs/scratch/PAS2271/$USER/flexserv/models/private
-PUB_MODEL_HOST=/fs/scratch/PAS2271/$USER/flexserv/models/public
-APPTAINER_IMAGE=/fs/scratch/PAS2271/$USER/flexserv/flexserv.sif
+export OSC_ACCOUNT_NAME=PAA1234  # replace with the desired OSC allocation
+./run_flexserv.sh --site osc --secret flexserv
 ```
+
+OSC keeps private resources under `/fs/scratch/<PROJECT>/$USER/flexserv` and shared resources under `/fs/scratch/<PROJECT>/flexserv`:
+
+```bash
+APPTAINER_CACHEDIR=/fs/scratch/<PROJECT>/flexserv/apptainer_cache
+PRI_MODEL_HOST=/fs/scratch/<PROJECT>/$USER/flexserv/models/private
+PUB_MODEL_HOST=/fs/scratch/<PROJECT>/flexserv/models/public
+APPTAINER_IMAGE=/fs/scratch/<PROJECT>/flexserv/flexserv.sif
+```
+
+The resolved paths are printed in the runner logs, making it possible to verify which allocation is being used.
 
 If the default `APPTAINER_IMAGE` does not exist yet, pull the image first as shown in [Pulling The Apptainer Image](#pulling-the-apptainer-image), or set `APPTAINER_IMAGE` to another `.sif` path.
 
 Models, container images, and Apptainer caches can be large, so check the quota and purge policy for your OSC scratch project. If you have another suitable project or shared filesystem, override the paths before launching:
 
 ```bash
-export OSC_ACCOUNT_NAME=PAS2271
+export OSC_ACCOUNT_NAME=PAA1234
 export APPTAINER_CACHEDIR=/path/to/cache
 export PRI_MODEL_HOST=/path/to/private/models
 export PUB_MODEL_HOST=/path/to/public/models
 export APPTAINER_IMAGE=/path/to/flexserv.sif
 ```
 
-By default, OSC launches use HTTP. If you pass `--enable-https`, you must provide valid certificate material:
-
-```bash
-export FLEXSERV_CERTFILE=/path/to/cert.pem
-export FLEXSERV_KEYFILE=/path/to/key.pem
-./run_flexserv.sh --site osc --secret flexserv --enable-https
-```
-
-If `FLEXSERV_CERTFILE` is a combined cert/key PEM file, `FLEXSERV_KEYFILE` is not required. The runner does not generate self-signed certificates by default because they are not trusted by browsers or normal HTTPS clients.
+OSC Open OnDemand manages the browser-facing HTTPS connection, so `--enable-https`, `FLEXSERV_CERTFILE`, and `FLEXSERV_KEYFILE` are not needed for OSC. FlexServ runs over HTTP behind the Open OnDemand proxy. If `--enable-https` is supplied, the OSC site script prints a warning and disables it.
 
 You can test from an OSC login node with the printed login-node port:
 
