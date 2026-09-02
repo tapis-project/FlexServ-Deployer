@@ -544,6 +544,7 @@ COMMON_APPTAINER_ARGS=(
     --env "FLEXSERV_OWNER=${FLEXSERV_OWNER}"
     --env "HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}"
     --env "TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache"
+    --env "TRITON_CACHE_DIR=/tmp/triton"
 )
 
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
