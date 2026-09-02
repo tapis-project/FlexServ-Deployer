@@ -54,6 +54,18 @@ The saved config path is:
 ~/.flexserv-deployer/config.json
 ```
 
+On Linux and macOS, `~` is resolved from the `HOME` environment variable. On
+Windows, the CLI also supports systems where `HOME` is not set by falling back
+to `USERPROFILE`, then to the combination of `HOMEDRIVE` and `HOMEPATH`. The
+resulting Windows path is normally:
+
+```text
+%USERPROFILE%\.flexserv-deployer\config.json
+```
+
+If `HOME` is explicitly set on Windows, such as from Git Bash, it takes
+precedence over the Windows-specific variables.
+
 Saved config fields:
 
 ```json

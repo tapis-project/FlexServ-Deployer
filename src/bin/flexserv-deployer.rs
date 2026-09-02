@@ -603,7 +603,18 @@ fn write_saved_config(_config: &SavedConfig) -> CliResult<()> {
 fn auth_config_path() -> CliResult<PathBuf> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("could not find HOME to store flexserv-deployer config"))?;
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+        .or_else(|| {
+            let home_drive = std::env::var_os("HOMEDRIVE")?;
+            std::env::var_os("HOMEPATH").map(|home_path| {
+                let mut home = PathBuf::from(home_drive);
+                home.push(home_path);
+                home
+            })
+        })
+        .ok_or_else(|| anyhow!(
+            "could not find a home directory; set HOME (Linux/macOS) or USERPROFILE (Windows) before running"
+        ))?;
     Ok(home.join(".flexserv-deployer").join("config.json"))
 }
 
@@ -897,7 +908,11 @@ async fn list_jobs(limit: i32) -> CliResult<()> {
     for job in jobs {
         let job_uuid = truncated(&job.uuid.clone().unwrap_or_else(|| "-".to_string()), 16);
         let job_name = truncated(job.name.as_deref().unwrap_or("-"), 32);
-        let submitted = submitted_at(job.created.as_deref());
+        let submitted = job
+            .created
+            .as_ref()
+            .map(|created| created.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "-".to_string());
         let system = truncated(job.exec_system_id.as_deref().unwrap_or("-"), 20);
         print_job_row(&[
             &job_uuid,
@@ -1123,22 +1138,6 @@ fn truncated(value: &str, max_chars: usize) -> String {
     let mut short = value.chars().take(keep).collect::<String>();
     short.push_str("...");
     short
-}
-
-fn submitted_at(created: Option<&str>) -> String {
-    let Some(created) = created else {
-        return "-".to_string();
-    };
-
-    let without_fraction = created
-        .split_once('.')
-        .map(|(head, _)| head)
-        .unwrap_or(created);
-    let mut compact = without_fraction.replace('T', " ");
-    if created.ends_with('Z') && !compact.ends_with('Z') {
-        compact.push('Z');
-    }
-    compact
 }
 
 fn print_job_row(columns: &[&str; 5]) {
