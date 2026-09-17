@@ -71,6 +71,7 @@ async fn test_create_functionality() {
             pod_url,
             pod_info,
             volume_info,
+            status: _,
             tapis_user,
             tapis_tenant: _,
             model_id,

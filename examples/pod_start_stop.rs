@@ -54,7 +54,10 @@ async fn main() -> Result<(), flexserv_deployer::DeploymentError> {
 
     match stopped {
         DeploymentResult::PodResult { pod_url, .. } => {
-            println!("After stop, pod_url hint: {:?}", pod_url);
+            println!(
+                "After stop, pod_url hint: {}",
+                pod_url.as_deref().unwrap_or("None")
+            );
         }
         DeploymentResult::HPCResult { .. } => unreachable!(),
     }

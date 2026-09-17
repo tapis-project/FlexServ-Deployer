@@ -2,6 +2,7 @@
 name = "flexserv-deployer"
 version = "1.4.1"
 edition = "2024"
+autobins = false
 
 [lib]
 name = "flexserv_deployer"
@@ -11,24 +12,29 @@ path = "src/lib.rs"
 name = "flexserv-deployer-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "flexserv-deployer"
+path = "src/bin/flexserv-deployer.rs"
+
 [dependencies]
 actix-web = { version = "4.13.0" }
+clap = { version = "4.5.54", features = ["derive", "env"] }
 reqwest = { version = "0.13.3", default-features = false, features = [
     "json",
     "native-tls",
     "blocking",
 ] }
-reqwest-middleware = { version = "0.5.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.52.3", features = ["full"] }
 anyhow = { version = "1.0.102" }
+base64 = "0.22.1"
 hf-hub = { version = "0.5.0" }
 env_logger = "0.11.10"
 log = "0.4"
 sha2 = "0.11.0"
 
-tapis-pods = "0.4.2"
+tapis-pods = "=0.4.2"
 tapis-jobs = "0.4.2"
 [dev-dependencies]
 actix-rt = "2.10"

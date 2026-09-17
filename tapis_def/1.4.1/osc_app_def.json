@@ -1,0 +1,184 @@
+{
+    "id": "FlexServ-OSC",
+    "version": "1.4.1",
+    "description": "A FlexServ inference server configured for Ohio Supercomputer Center systems.",
+    "owner": "${apiUserId}",
+    "enabled": true,
+    "runtime": "ZIP",
+    "runtimeVersion": null,
+    "runtimeOptions": [
+        "SINGULARITY_RUN"
+    ],
+    "containerImage": "https://github.com/tapis-project/FlexServ-Deployer/releases/download/tapis-flexserv-1.4.1/Tapis-FlexServ.zip",
+    "jobType": "BATCH",
+    "maxJobs": -1,
+    "maxJobsPerUser": -1,
+    "strictFileInputs": false,
+    "jobAttributes": {
+        "description": "FlexServ on OSC run by ${JobOwner}",
+        "dynamicExecSystem": false,
+        "execSystemConstraints": null,
+        "execSystemExecDir": "${JobWorkingDir}",
+        "execSystemInputDir": "${JobWorkingDir}",
+        "execSystemOutputDir": "${JobWorkingDir}/output",
+        "archiveSystemDir": "HOST_EVAL($HOME)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+        "archiveMode": "ALWAYS",
+        "isMpi": false,
+        "mpiCmd": null,
+        "cmdPrefix": null,
+        "parameterSet": {
+            "appArgs": [
+                {
+                    "name": "flexServSite",
+                    "description": "Select the OSC site adapter.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--site osc"
+                },
+                {
+                    "name": "flexServPort",
+                    "description": "Compute-node port used by the FlexServ gateway.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--flexserv-port 8000"
+                },
+                {
+                    "name": "flexServSecret",
+                    "description": "Optional secret used to authenticate requests to FlexServ.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--secret flexserv"
+                },
+                {
+                    "name": "modelName",
+                    "description": "Default model served by FlexServ.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--model-name Qwen/Qwen3.5-0.8B"
+                },
+                {
+                    "name": "loginPort",
+                    "description": "Optional fixed login-node port; omit it to select an available port automatically.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--login-port 63210"
+                },
+                {
+                    "name": "device",
+                    "description": "Backend device selection.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--device auto"
+                },
+                {
+                    "name": "dtype",
+                    "description": "Model dtype passed to the backend.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--dtype bfloat16"
+                },
+                {
+                    "name": "attnImplementation",
+                    "description": "Attention implementation passed to the backend.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--attn-implementation sdpa"
+                },
+                {
+                    "name": "modelTimeout",
+                    "description": "Backend model timeout in seconds.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--model-timeout 86400"
+                },
+                {
+                    "name": "quantization",
+                    "description": "Backend quantization mode.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--quantization none"
+                },
+                {
+                    "name": "trustRemoteCode",
+                    "description": "Whether the backend may execute model-provided remote code.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--trust-remote-code false"
+                },
+                {
+                    "name": "continuousBatching",
+                    "description": "Whether continuous batching is enabled.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--continuous-batching false"
+                },
+                {
+                    "name": "isDistributed",
+                    "description": "Use 0 for single-node mode or 1 for distributed mode.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--is-distributed 0"
+                }
+            ],
+            "schedulerOptions": [
+                {
+                    "name": "Slurm job name",
+                    "description": "Set the Slurm job name from the Tapis job name.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--job-name tap_${JobName}"
+                },
+                {
+                    "name": "OSC Resource Allocation",
+                    "description": "Set the OSC allocation used for the job.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "-A << allocation >>"
+                },
+                {
+                    "name": "Reservation Name",
+                    "description": "Optionally select a Slurm reservation.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--reservation << reservation >>"
+                }
+            ],
+            "envVariables": [
+                {
+                    "key": "HUGGINGFACE_TOKEN",
+                    "value": "hf_xxx",
+                    "description": "Optional token for downloading gated Hugging Face models.",
+                    "inputMode": "INCLUDE_ON_DEMAND"
+                },
+                {
+                    "key": "FLEXSERV_BACKEND_TYPE",
+                    "value": "transformers",
+                    "description": "FlexServ inference backend type.",
+                    "inputMode": "INCLUDE_BY_DEFAULT"
+                },
+                {
+                    "key": "ENABLE_GATEWAY",
+                    "value": "true",
+                    "description": "Enable the FlexServ gateway.",
+                    "inputMode": "INCLUDE_BY_DEFAULT"
+                },
+                {
+                    "key": "GATEWAY_BACKEND_PORT",
+                    "value": "8001",
+                    "description": "Internal port used by the managed backend.",
+                    "inputMode": "INCLUDE_BY_DEFAULT"
+                },
+                {
+                    "key": "GATEWAY_PORT",
+                    "value": "8000",
+                    "description": "Public compute-node port used by the gateway.",
+                    "inputMode": "INCLUDE_BY_DEFAULT"
+                }
+            ],
+            "archiveFilter": {
+                "includeLaunchFiles": true
+            },
+            "logConfig": {
+                "stdoutFilename": "",
+                "stderrFilename": ""
+            }
+        },
+        "nodeCount": 1,
+        "coresPerNode": 16,
+        "memoryMB": 128000,
+        "maxMinutes": 120
+    },
+    "tags": [
+        "appName: FlexServ",
+        "site: OSC"
+    ],
+    "notes": {
+        "label": "FlexServ OSC",
+        "category": "Utilities",
+        "showTargetPath": true
+    }
+}
