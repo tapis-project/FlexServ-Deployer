@@ -488,6 +488,8 @@ echo "FlexServ address: ${FLEXSERV_ACCESS_URL}  FlexServ token: ${FLEXSERV_SECRE
 echo "======================================================================"
 echo ""
 
+echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  FlexServ token: ${FLEXSERV_SECRET}" > ${_tapisExecSystemOutputDir}/flexserv_access_info.txt
+
 # 5. Run FlexServ in Apptainer container
 echo "Starting FlexServ in Apptainer container..."
 echo "Service will be available on port ${FLEXSERV_PORT}"
