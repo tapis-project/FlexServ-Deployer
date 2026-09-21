@@ -378,7 +378,9 @@ setup_cert_tls
 setup_random_token
 setup_login_port
 
-FLEXSERV_SECRET=${FLEXSERV_SECRET:-${FLEXSERV_TOKEN:-${RAND_TOKEN}}}
+echo "Random token: ${RAND_TOKEN}"
+
+FLEXSERV_SECRET=${FLEXSERV_SECRET:-${RAND_TOKEN}}
 if [ -z "${FLEXSERV_OWNER:-}" ]; then
     if owner="$(whoami 2>/dev/null)" && [ -n "${owner}" ]; then
         export FLEXSERV_OWNER="${owner}"
@@ -597,6 +599,9 @@ COMMON_APPTAINER_ARGS=(
     --env "FLEXSERV_OWNER=${FLEXSERV_OWNER}"
     --env "HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}"
     --env "TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache"
+    --env "TRITON_CACHE_DIR=/tmp/triton"
+    --env "CC=/usr/bin/gcc"
+    --env "CXX=/usr/bin/g++"
 )
 
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
@@ -604,22 +609,22 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L || true
 
 case "${MODEL_NAME}" in
-FLEX:PRI:* | FLEX:PUB:*)
+    FLEX:PRI:*|FLEX:PUB:*)
     ;;
-*)
-    MODEL_NAME="FLEX:PRI:${MODEL_NAME}"
+    *)
+        MODEL_NAME="FLEX:PRI:${MODEL_NAME}"
     ;;
 esac
 
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
     DIRECT_BACKEND_MODEL_NAME="${MODEL_NAME}"
     case "${DIRECT_BACKEND_MODEL_NAME}" in
-    FLEX:PRI:*)
-        DIRECT_BACKEND_MODEL_NAME="${DIRECT_BACKEND_MODEL_NAME#FLEX:PRI:}"
+        FLEX:PRI:*)
+            DIRECT_BACKEND_MODEL_NAME="${DIRECT_BACKEND_MODEL_NAME#FLEX:PRI:}"
         ;;
-    FLEX:PUB:*)
-        echo "ERROR: distributed direct-backend mode cannot resolve public-pool FlexServ IDs. Use a private model or disable --distributed."
-        exit 1
+        FLEX:PUB:*)
+            echo "ERROR: distributed direct-backend mode cannot resolve public-pool FlexServ IDs. Use a private model or disable --distributed."
+            exit 1
         ;;
     esac
 
