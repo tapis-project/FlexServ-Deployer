@@ -242,20 +242,22 @@ impl FlexServHPCDeployment {
     ) -> Option<(String, String)> {
         let exec_system_id = job.exec_system_id.as_deref()?;
         let exec_output_dir = job.exec_system_output_dir.as_deref()?;
-        let log_path = format!("{}/tapisjob.out", exec_output_dir.trim_end_matches('/'));
+        let log_path = format!(
+            "{}/flexserv_access_info.txt",
+            exec_output_dir.trim_end_matches('/')
+        );
         let normalized_path = log_path.trim_start_matches('/');
         let base = config.base_path.trim_end_matches('/');
         let endpoint = format!(
             "{}/files/content/{}/{}",
             base, exec_system_id, normalized_path
         );
-        let server_ready_marker = "Server ready to accept requests";
 
-        for page in 1..=5 {
+        // Single-line file, so no pagination; retry since it may not be written yet.
+        for _ in 1..=5 {
             let mut req_builder = config
                 .client
                 .request(reqwest::Method::GET, endpoint.as_str());
-            req_builder = req_builder.header("more", page.to_string());
             if let Some(ref api_key) = config.api_key {
                 let token = match api_key.prefix {
                     Some(ref prefix) => format!("{} {}", prefix, api_key.key),
@@ -266,16 +268,11 @@ impl FlexServHPCDeployment {
 
             let request = req_builder.build().ok()?;
             let response = config.client.execute(request).await.ok()?;
-            if !response.status().is_success() {
-                return None;
-            }
-            let log_text = response.text().await.ok()?;
-
-            if let Some(access) = Self::parse_access_information(&log_text) {
-                return Some(access);
-            }
-            if log_text.contains(server_ready_marker) {
-                return None;
+            if response.status().is_success() {
+                let log_text = response.text().await.ok()?;
+                if let Some(access) = Self::parse_access_information(&log_text) {
+                    return Some(access);
+                }
             }
             sleep(Duration::from_secs(5)).await;
         }
