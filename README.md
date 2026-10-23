@@ -1,5 +1,8 @@
 ## FlexServ Deployer
 
+For the minimal current Gateway + v0.13 FCS launch inside an interactive Slurm
+allocation, see [interactive-slurm](interactive-slurm/README.md).
+
 Rust library for deploying FlexServ model servers onto Tapis Pods and HPC via Tapis Jobs.
 
 The **library** is the main product. The Actix-web binary is a thin wrapper and intentionally minimal.
