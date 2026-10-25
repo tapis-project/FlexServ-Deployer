@@ -117,9 +117,10 @@ BUILD metadata, a Tapis environment file, or a chat message.
 
 See [Alpha verification](../recordings/alpha-2026-10-25/verification.json).
 Local macOS fixtures are complete. Linux Actions, real site access and physical
-hardware results are separate gates. The first Deployer run stopped before any
-source checkout because its private-source read secret was missing; no ZIP was
-published by that run. Configure the documented secret, then rerun the workflow.
+hardware results are separate gates. The private-source credential now passes
+authentication and exact-revision checkout. Earlier failed runs did not publish
+a ZIP. The verification record distinguishes completed Linux build gates from
+pending publication and site acceptance.
 The original ignored site.env and unrelated NewReleaseSpec.md are preserved.
 
 ## Tapis application parameters
