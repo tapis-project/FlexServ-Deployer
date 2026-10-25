@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-25",
+  "status": "CODE_AND_LOCAL_VERIFICATION_COMPLETE; RELEASE_PUBLICATION_PENDING",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "rust": "1.99.1",
+  "rust_tests": {
+    "fcs": 401,
+    "gateway": 278,
+    "linux_openat2_cases_not_run": 2
+  },
+  "http_regressions": {
+    "network": 22,
+    "authentication": 64,
+    "process": 8,
+    "runner": 11
+  },
+  "runtime": {
+    "two_fcs_dummy_debug": 8,
+    "two_fcs_dummy_release": 8,
+    "tapis_merged_debug": 15,
+    "tapis_merged_release": 15,
+    "standalone_vllm_release": 20,
+    "actual_bash_entry": 5,
+    "merged_domain_authorization_cases": 2,
+    "native_cli_release": 16
+  },
+  "pack": {
+    "toolsets": 18,
+    "tools": 65,
+    "inventory_sha256": "099a8f0877f2b598ed372c055b13bcd022715bc1ef4723548124497df56dea2f",
+    "packaging_tests": 3
+  },
+  "deployer": {
+    "unit_tests": 8,
+    "workflow_lint": "PASS",
+    "shell_syntax": "PASS including Bash 3.2"
+  },
+  "contracts": {
+    "schemas": 77,
+    "canonical_vendor_parity": "PASS"
+  },
+  "strict_clippy": {
+    "status": "BASELINE_FAILURE",
+    "fcs_lib": 55,
+    "fcs_lib_tests": 62,
+    "gateway": 103,
+    "note": "Includes the pre-existing nested OS metadata conditional moved from the probe binary into the library; compiler build/check has no warnings."
+  },
+  "actions": {
+    "gateway_run": "https://github.com/zhangwei217245/FlexServ/actions/runs/40235178272",
+    "gateway_state": "IN_PROGRESS",
+    "wire_contracts": "SUCCESS",
+    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40235286399",
+    "deployer_state": "FAILED_PREFLIGHT_MISSING_SOURCE_READ_SECRET",
+    "fcs_and_pack_runs": "API connection lacks access; not asserted as passed"
+  },
+  "not_run": [
+    "Real Slurm/TACC TAP/OSC Open OnDemand",
+    "Real GPU/driver/RDMA/JIT acceptance",
+    "Real vLLM/MAX installation",
+    "External Tapis resources",
+    "Historical standalone Bootstrap topology harness (superseded by new coordinator fixtures)"
+  ],
+  "binaries": {
+    "fcs_debug": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/fcs-deploy-node-v013/target/debug/flexserv-capability-server",
+      "sha256": "023446bf85e932b47456b26cbe714784c02d2f5380dd2248238d9486d2ff33aa"
+    },
+    "fcs_release": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/fcs-deploy-node-v013/target/release/flexserv-capability-server",
+      "sha256": "101aa2bdc1d7eed46ee42f3afc7d2d5eb298963ab92944cd34c0ddbbb1c34970"
+    },
+    "gateway_debug": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/debug/flexserv-gateway",
+      "sha256": "14c2e9c80c4a64145bb9e19e74869ad4b592c51c05c673a614aa892371692bf0"
+    },
+    "gateway_release": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/release/flexserv-gateway",
+      "sha256": "c4dad6d9db2b092cf0ee39131c6434d25ffd5f1d9f7b6aab7dc17008fc30ace9"
+    }
+  }
+}

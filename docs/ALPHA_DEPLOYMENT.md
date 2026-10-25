@@ -111,3 +111,21 @@ private reusable-workflow sharing is not required: the Deployer calls its own
 reusable job, checks out exact component commits, and runs the same checked-in
 build scripts used by each component workflow. Never put the token in source,
 BUILD metadata, a Tapis environment file, or a chat message.
+
+## Verification record
+
+See [Alpha verification](../recordings/alpha-2026-10-25/verification.json).
+Local macOS fixtures are complete. Linux Actions, real site access and physical
+hardware results are separate gates. The first Deployer run stopped before any
+source checkout because its private-source read secret was missing; no ZIP was
+published by that run. Configure the documented secret, then rerun the workflow.
+The original ignored site.env and unrelated NewReleaseSpec.md are preserved.
+
+## Tapis application parameters
+
+The Alpha ZIP entry starts the control plane without positional arguments. Use
+its environment configuration (or `--control-plane-only` for manual testing).
+The existing `tapis_def/1.4.0` examples still describe the old 1.4 release and
+retain its arguments; do not point that App at the Alpha ZIP without removing
+retired model/device/quantization arguments. This delivery does not create or
+change live Tapis Apps, Systems or Jobs.

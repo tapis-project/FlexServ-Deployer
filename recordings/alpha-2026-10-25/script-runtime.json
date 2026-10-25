@@ -8,11 +8,11 @@
   "binaries": {
     "gateway": {
       "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/release/flexserv-gateway",
-      "sha256": "f871874a7a42d3b4c272bb0b29d0c8d940c7328fc3fd3b9626cd7fe49659089d"
+      "sha256": "c4dad6d9db2b092cf0ee39131c6434d25ffd5f1d9f7b6aab7dc17008fc30ace9"
     },
     "server": {
       "path": "/Users/wei.zhang/Developer/git/Agentic/fcs-deploy-node-v013/target/release/flexserv-capability-server",
-      "sha256": "1372305e1c52309a0b49fc442a8ed239c5b359dfec1c87b55006ac8f7110c2d2"
+      "sha256": "101aa2bdc1d7eed46ee42f3afc7d2d5eb298963ab92944cd34c0ddbbb1c34970"
     }
   },
   "pack_sha256": "59d424e2272942aa60fb868010e9f102688d1cf3ac84c9e3f8583eddd885b4d3",
@@ -25,14 +25,14 @@
       "SIGTERM executes shell cleanup, reaps both owned roles and closes all ports while retaining evidence"
     ],
     "passed": 5,
-    "seconds": 3.223,
-    "entry_pid": 34928,
+    "seconds": 3.568,
+    "entry_pid": 46186,
     "owned_roles": [
-      35104,
-      35116
+      46232,
+      46252
     ],
     "all_owned_roles_gone": true,
-    "temporary_job_removed_on_return": "/private/var/folders/8g/nrnrgqx90md2scp6205898kh0000gp/T/flexserv-alpha-script-yxt0kejw",
+    "temporary_job_removed_on_return": "/private/tmp/flexserv-alpha-script-b91iod6u",
     "discovered_tools": 40,
     "pack_tools": 65
   }

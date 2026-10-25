@@ -114,7 +114,15 @@ print(backend)')
     export FLEXSERV_ACCELERATOR_BACKEND
     case "$FLEXSERV_ACCELERATOR_BACKEND" in cuda|xpu|rocm) ;; *) echo 'No supported accelerator runtime is available; use --control-plane-only for control-plane validation.' >&2; return 1 ;; esac
     ensure_max
-    "$FLEXSERV_VLLM_VENV_PATH/bin/python" -c 'import importlib.metadata as m,json; print(json.dumps({k:m.version(k) for k in ("vllm","aiperf")}))' > "$FLEXSERV_JOB_DIR/runtime/environment-versions.json"
+    "$FLEXSERV_VLLM_VENV_PATH/bin/python" - "$FLEXSERV_MAX_VENV_PATH/bin/python" > "$FLEXSERV_JOB_DIR/runtime/environment-versions.json" <<'PY'
+import importlib.metadata as m,json,os,subprocess,sys
+info={'python':sys.version.split()[0],'uv':subprocess.check_output([os.environ['UV_BIN'],'--version'],text=True).strip(),
+      'vllm':m.version('vllm'),'aiperf':m.version('aiperf'),'accelerator_backend':os.environ['FLEXSERV_ACCELERATOR_BACKEND'],
+      'max_status':os.environ.get('FLEXSERV_MAX_STATUS','not_checked')}
+if info['max_status']=='ready':
+    info['max']=subprocess.check_output([sys.argv[1],'-c','import importlib.metadata as m; print(m.version("max"))'],text=True).strip()
+print(json.dumps(info,indent=2))
+PY
     flock -u 9; exec 9>&-
 }
 max_supported() {
@@ -127,18 +135,20 @@ libc,version=platform.libc_ver()
 if libc != 'glibc' or tuple(map(int,version.split('.')[:2])) < (2,35): raise SystemExit(1)
 if platform.machine()=='x86_64':
     flags=open('/proc/cpuinfo').read().split('flags',1)[-1].split('\n',1)[0].split()
-    if not {'avx','avx2','bmi1','bmi2','f16c','fma','lzcnt','movbe','xsave'} <= set(flags): raise SystemExit(1)
+    if not {'avx','avx2','bmi1','bmi2','f16c','fma','movbe','xsave'} <= set(flags) or not ({'abm','lzcnt'} & set(flags)): raise SystemExit(1)
 PYTHON
 }
 ensure_max() {
+    export FLEXSERV_MAX_STATUS=not_checked
     case "$FLEXSERV_INSTALL_MAX" in
-        0|false|off) echo 'MAX installation disabled.'; return ;;
+        0|false|off) export FLEXSERV_MAX_STATUS=disabled; echo 'MAX installation disabled.'; return ;;
         auto|1|true|on) ;;
         *) echo 'FLEXSERV_INSTALL_MAX must be auto, 0 or 1.' >&2; return 1 ;;
     esac
     if ! max_supported; then
         [[ "$FLEXSERV_INSTALL_MAX" == auto ]] || { echo 'MAX is required but unsupported on this node.' >&2; return 1; }
-        echo 'MAX skipped: unsupported backend or missing runtime linker.'; return
+        export FLEXSERV_MAX_STATUS=unsupported
+        echo 'MAX skipped: unsupported platform/backend or missing runtime linker.'; return
     fi
     local requirement="max${MAX_VERSION:+==$MAX_VERSION}"
     if ! venv_ready "$FLEXSERV_MAX_VENV_PATH/bin/python" "$requirement" ||
@@ -147,11 +157,12 @@ ensure_max() {
        [[ ! -x "$FLEXSERV_MAX_VENV_PATH/bin/max" ]]; then
         if [[ ! -f "$FLEXSERV_MAX_VENV_ROOT/pyproject.toml" ]]; then "$UV_BIN" init --bare --python 3.13 "$FLEXSERV_MAX_VENV_ROOT"; fi
         if [[ ! -x "$FLEXSERV_MAX_VENV_PATH/bin/python" ]]; then "$UV_BIN" venv --python 3.13 "$FLEXSERV_MAX_VENV_PATH"; fi
-        (cd "$FLEXSERV_MAX_VENV_ROOT" && "$UV_BIN" add --no-build "max[all]${MAX_VERSION:+==$MAX_VERSION}")
+        (cd "$FLEXSERV_MAX_VENV_ROOT" && UV_PROJECT_ENVIRONMENT="$FLEXSERV_MAX_VENV_PATH" "$UV_BIN" add --no-build "max[all]${MAX_VERSION:+==$MAX_VERSION}")
         venv_ready "$FLEXSERV_MAX_VENV_PATH/bin/python" "$requirement"
         "$UV_BIN" pip check --python "$FLEXSERV_MAX_VENV_PATH/bin/python"
         "$FLEXSERV_MAX_VENV_PATH/bin/max" --help >/dev/null
     fi
+    export FLEXSERV_MAX_STATUS=ready
 }
 install_flexserv() {
     python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else "Python 3.8+ is required for the launcher")'
