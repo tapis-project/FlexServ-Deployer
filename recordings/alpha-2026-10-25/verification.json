@@ -1,6 +1,6 @@
 {
   "date": "2026-10-25",
-  "status": "CODE_AND_LOCAL_VERIFICATION_COMPLETE; RELEASE_PUBLICATION_PENDING",
+  "status": "ALPHA_RELEASE_PUBLISHED_AND_DOWNLOAD_VERIFIED; SITE_ACCEPTANCE_PENDING",
   "platform": "macOS-27.0.1-arm64-arm-64bit",
   "rust": "1.99.1",
   "rust_tests": {
@@ -31,9 +31,13 @@
     "packaging_tests": 3
   },
   "deployer": {
-    "unit_tests": 9,
+    "unit_tests": 10,
     "workflow_lint": "PASS",
-    "shell_syntax": "PASS including Bash 3.2"
+    "shell_syntax": "PASS including Bash 3.2",
+    "physical_job_alias_runtime": "PASS",
+    "actions_release_source_unit_tests": 9,
+    "release_asset_validation_fixture_cases": 6,
+    "manual_dispatch_mode": "Event predicate reviewed and workflow lint passed; manual dispatch on a tag not executed"
   },
   "contracts": {
     "schemas": 77,
@@ -47,12 +51,33 @@
     "note": "Includes the pre-existing nested OS metadata conditional moved from the probe binary into the library; compiler build/check has no warnings."
   },
   "actions": {
-    "gateway_run": "https://github.com/zhangwei217245/FlexServ/actions/runs/40235178272",
-    "gateway_state": "BOTH_LINUX_TEST_BUILD_ABI_PASSED; SOURCE_IDENTITY_RECORDING_FAILED_AND_FIXED",
+    "gateway_run": "https://github.com/zhangwei217245/FlexServ/actions/runs/40237580622",
+    "gateway_state": "SUCCESS_BOTH_ARCHITECTURES",
     "wire_contracts": "SUCCESS",
-    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40237059701",
-    "deployer_state": "SOURCE_AUTHENTICATION_PASS; NATIVE_MATRIX_IN_PROGRESS",
-    "fcs_and_pack_runs": "API connection lacks access; not asserted as passed"
+    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40241317109",
+    "deployer_state": "SUCCESS_ALL_FOUR_NATIVE_BUILDS_AND_PUBLICATION",
+    "fcs_and_pack_runs": "FCS and Pack verified through pinned Deployer jobs; independent private-repository run APIs remain unavailable to the connector",
+    "previous_fcs_linux_failure": "Resolved: both architectures pass after replacing root-bypassable chmod injection with deterministic filesystem collisions.",
+    "fcs_source": "629708005c32e3218fb79183b7a09b87a10d5c11",
+    "fcs_linux_library_tests": {
+      "linux-x86_64": 267,
+      "linux-aarch64": 267
+    },
+    "linux_checks": [
+      "Rust 1.99.1 --locked",
+      "native runner library tests",
+      "Release CLI smoke",
+      "ELF architecture/interpreter",
+      "glibc <= 2.28",
+      "declared dynamic-library dependencies",
+      "exact source revision recording"
+    ],
+    "prior_candidate_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40239046952",
+    "prior_candidate_result": "All four native library tests, Release builds, ABI/smoke checks and complete ZIP assembly passed; release creation succeeded after authorized tag creation, but public draft-by-tag lookup returned 404. Publisher now uses authenticated release enumeration and numeric ID.",
+    "gateway_linux_library_tests": {
+      "linux-x86_64": 278,
+      "linux-aarch64": 278
+    }
   },
   "not_run": [
     "Real Slurm/TACC TAP/OSC Open OnDemand",
@@ -78,5 +103,41 @@
       "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/release/flexserv-gateway",
       "sha256": "c4dad6d9db2b092cf0ee39131c6434d25ffd5f1d9f7b6aab7dc17008fc30ace9"
     }
+  },
+  "sources": {
+    "FlexServ": {
+      "branch": "feature/1.5.0-alpha",
+      "commit": "629a7eec38acd8ec43fb54021de5f787f6f96d81"
+    },
+    "FlexServ-FCS": {
+      "branch": "feature/new_fcs",
+      "commit": "629708005c32e3218fb79183b7a09b87a10d5c11"
+    },
+    "FlexServ-FCS-Pack": {
+      "branch": "flexserv/new_fcs",
+      "commit": "ba5d8e8f4e0fcf49fdcff4845018ed003a15670b"
+    },
+    "FlexServ-deployer": {
+      "branch": "feature/1.5.0",
+      "commit": "dca6e959e79c296dc44e0420a4cfe2aa5dfe44a1"
+    }
+  },
+  "docs_relative_links": {
+    "gateway": 29,
+    "fcs": 131,
+    "deployer": 5,
+    "pack": 1,
+    "missing": 0
+  },
+  "release": {
+    "url": "https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-43",
+    "tag": "tapis-flexserv-1.5.0-alpha-43",
+    "draft": false,
+    "prerelease": true,
+    "archive_sha256": "50ff5ed683837fefbbe7b4bd48b640c81e9661608a1f70f80467dc752b65aac1",
+    "archive_bytes": 76495985,
+    "files": 16,
+    "download_verification": "PASS: outer digest, complete inventory, executable ELF architectures, Pack checksums and all source commits",
+    "evidence": "published-bundle.json"
   }
 }

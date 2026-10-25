@@ -131,11 +131,12 @@ BUILD metadata, a Tapis environment file, or a chat message.
 ## Verification record
 
 See [Alpha verification](../recordings/alpha-2026-10-25/verification.json).
-Local macOS fixtures are complete. Linux Actions, real site access and physical
-hardware results are separate gates. The private-source credential now passes
-authentication and exact-revision checkout. Earlier failed runs did not publish
-a ZIP. The verification record distinguishes completed Linux build gates from
-pending publication and site acceptance.
+Local macOS fixtures and native Linux Actions builds are complete.
+[Alpha 43](https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-43)
+is published; its downloaded archive, all 16 files, ELF identities, Pack checksums
+and source metadata pass verification. Earlier failed attempts are retained in
+the verification record. Real site access and physical hardware remain separate,
+unexecuted acceptance gates.
 The original ignored site.env and unrelated NewReleaseSpec.md are preserved.
 
 ## Tapis application parameters

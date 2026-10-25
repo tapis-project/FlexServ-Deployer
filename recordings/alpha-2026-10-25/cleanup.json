@@ -1,0 +1,83 @@
+{
+  "status": "PASS",
+  "removed": [
+    {
+      "path": "/private/tmp/flexserv-alpha-runtime-python",
+      "entries": 2187,
+      "apparent_bytes": 38295729
+    },
+    {
+      "path": "/private/tmp/flexserv-alpha-20261025",
+      "entries": 48,
+      "apparent_bytes": 83288206
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-native-backup",
+      "entries": 47,
+      "apparent_bytes": 941659
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-check.log",
+      "entries": 1,
+      "apparent_bytes": 176
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-tests.log",
+      "entries": 1,
+      "apparent_bytes": 31568
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-tests-unsandboxed.log",
+      "entries": 1,
+      "apparent_bytes": 27057
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-clippy.log",
+      "entries": 1,
+      "apparent_bytes": 66679
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-build.log",
+      "entries": 1,
+      "apparent_bytes": 176
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-dependency-tree.txt",
+      "entries": 1,
+      "apparent_bytes": 23761
+    },
+    {
+      "path": "/private/tmp/alpha-gateway-fmt.log",
+      "entries": 1,
+      "apparent_bytes": 0
+    },
+    {
+      "path": "/private/tmp/alpha-native-references.txt",
+      "entries": 1,
+      "apparent_bytes": 77574
+    },
+    {
+      "path": "/private/tmp/alpha_strip_features.py",
+      "entries": 1,
+      "apparent_bytes": 3762
+    },
+    {
+      "path": "/private/tmp/alpha_remove_workers.py",
+      "entries": 1,
+      "apparent_bytes": 7685
+    },
+    {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ-FCS/target",
+      "kind": "temporary symlink only; destination cache retained"
+    }
+  ],
+  "processes": "Recorded runtime fixtures assert owned parents reaped and listeners closed; no later runtime servers started",
+  "vms_created": false,
+  "preserved": [
+    "Historical FCS/Gateway build caches and tested binaries",
+    "User tests/probes and NewReleaseSpec.md",
+    "Historical user artifacts and Finder files",
+    "Published Alpha 43 and finite verification records",
+    "Unpublished failed Alpha 42 draft retained as failure evidence"
+  ]
+}
