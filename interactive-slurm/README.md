@@ -19,6 +19,25 @@ same paths on every node. Load any required site modules before launching.
 With Rust 1.99 and the two source checkouts already available on shared storage:
 
 ```bash
+
+# Confirm GCC/G++ locations
+which gcc
+which g++
+
+# if cannot be found, install gcc and g++ using your package manager, e.g., apt or yum
+# or load a module providing GCC/G++ if your site uses environment modules
+
+# module load gcc
+
+# Explicitly select GCC/G++ for native builds
+export CC="$(command -v gcc)"
+export CXX="$(command -v g++)"
+
+# Explicitly select GCC/G++ for AWS-LC
+export AWS_LC_SYS_CC="$CC"
+export AWS_LC_SYS_CXX="$CXX"
+
+
 cd /shared/flexserv  # Parent directory containing both source checkouts.
 # FlexServ checkout: feature/1.5.0
 cargo build --release --manifest-path FlexServ/flexserv/gateway/Cargo.toml
