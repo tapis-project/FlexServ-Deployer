@@ -1,8 +1,7 @@
 name: Publish Tapis FlexServ Alpha Bundle
 on:
   push:
-    branches: [feature/1.5.0]
-    paths: ['hpc_archive/**', 'scripts/**', 'tests/release/**', '.github/workflows/build-component.yml', '.github/workflows/publish-flexserv-bundle.yml']
+    tags: ['tapis-flexserv-*']
   workflow_dispatch:
     inputs:
       gateway_ref:
@@ -21,7 +20,7 @@ on:
         default: true
         type: boolean
       tag:
-        description: Release tag (empty creates a run-specific alpha tag)
+        description: Existing tag at this Deployer commit (required when publishing)
         type: string
 permissions:
   contents: read
@@ -33,6 +32,15 @@ jobs:
       fcs: ${{ steps.resolve.outputs.fcs }}
       pack: ${{ steps.resolve.outputs.pack }}
     steps:
+      - name: Validate existing release tag
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
+        run: |
+          test -n "$RELEASE_TAG" || { echo 'Create and push a release tag at this Deployer commit before publishing.' >&2; exit 1; }
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          test "$actual" = "$GITHUB_SHA" || { echo 'Release tag does not identify this Deployer commit.' >&2; exit 1; }
       - id: resolve
         env:
           GH_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
@@ -109,17 +117,33 @@ jobs:
           name: Tapis-FlexServ
           path: dist/Tapis-FlexServ.zip*
           if-no-files-found: error
-      - if: github.event_name == 'push' || inputs.publish_release
+      - if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
         run: |
-          tag=${RELEASE_TAG:-tapis-flexserv-1.5.0-alpha-${GITHUB_RUN_NUMBER}}
-          gh release create "$tag" dist/Tapis-FlexServ.zip* --draft --prerelease --title "$tag" --target "$GITHUB_SHA" --generate-notes
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > dist/uploaded-release.json
+          tag=${RELEASE_TAG:?An existing release tag is required}
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)
+          test "$actual" = "$GITHUB_SHA" || { echo 'Release tag changed during the build.' >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp > dist/uploaded-releases.json
+          existing=$(python3 - <<'PY'
+          import json,os,pathlib
+          matches=[r for page in json.loads(pathlib.Path('dist/uploaded-releases.json').read_text()) for r in page if r['tag_name']==os.environ['RELEASE_TAG']]
+          if len(matches)>1: raise SystemExit('Ambiguous release tag')
+          print(matches[0]['id'] if matches else '')
+          PY
+          )
+          # The verified tag already pins the source; do not ask the API to create a ref.
+          if [ -z "$existing" ]; then
+            gh release create "$tag" dist/Tapis-FlexServ.zip* --verify-tag --draft --prerelease --title "$tag" --generate-notes
+          fi
+          # Draft releases are not reliably available through the public tag lookup.
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp > dist/uploaded-releases.json
           python3 - <<'PY'
-          import hashlib,json,pathlib
-          published=json.loads(pathlib.Path('dist/uploaded-release.json').read_text())
+          import hashlib,json,os,pathlib
+          matches=[r for page in json.loads(pathlib.Path('dist/uploaded-releases.json').read_text()) for r in page if r['tag_name']==os.environ['RELEASE_TAG']]
+          if len(matches)!=1: raise SystemExit('Expected one release for the verified tag')
+          published=matches[0]
           assets={a['name']:a for a in published['assets']}
           expected=[pathlib.Path('dist/Tapis-FlexServ.zip'),pathlib.Path('dist/Tapis-FlexServ.zip.sha256')]
           if set(assets)!={p.name for p in expected}: raise SystemExit('Incomplete draft release; leaving unpublished')
@@ -127,5 +151,10 @@ jobs:
               a=assets[p.name]
               if a['size']!=p.stat().st_size or (a.get('digest') and a['digest']!='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()):
                   raise SystemExit('Uploaded asset mismatch; leaving draft unpublished')
+          pathlib.Path('dist/release-id.txt').write_text(str(published['id']))
+          pathlib.Path('dist/release-state.txt').write_text('draft' if published['draft'] else 'published')
           PY
-          gh release edit "$tag" --draft=false
+          release_id=$(cat dist/release-id.txt)
+          if [ "$(cat dist/release-state.txt)" = draft ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false > dist/published-release.json
+          fi

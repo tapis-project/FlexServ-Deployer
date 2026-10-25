@@ -104,6 +104,19 @@ libraries, then publishes `Tapis-FlexServ.zip` plus checksum. It does not embed
 mistral.rs, build a GPU variant, or install an optional engine. The checksum
 checks integrity, not publisher authenticity by itself.
 
+To build without publishing, run the workflow manually with `publish_release`
+disabled. To publish, create and push a `tapis-flexserv-*` tag at the intended
+Deployer commit. The tag push runs the pipeline and publishes that existing tag.
+Manual publication likewise
+requires an existing `tag` identifying the selected Deployer commit; a mismatch
+fails before compilation. This keeps the standard `GITHUB_TOKEN` sufficient
+without granting the source-read credential write access. GitHub's release
+endpoint can require workflow-write authorization when it creates a new tag
+whose target changes workflow files relative to the default branch; see the
+[Create a release requirements](https://docs.github.com/en/rest/releases/releases#create-a-release).
+Uploaded drafts are located through the authenticated release list and published
+by numeric ID only after asset checks; public tag lookup is not used for drafts.
+
 ## Private source repositories
 
 Set the Deployer Actions secret `FLEXSERV_SOURCE_TOKEN` to a credential with read

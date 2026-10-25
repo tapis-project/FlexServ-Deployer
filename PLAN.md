@@ -11,6 +11,16 @@ Approved on 2026-10-25. Ship only Gateway and Capability Server, one v1alpha2 Pa
 
 No GPU/HPC result may be inferred from fixtures. No restart recovery, PID adoption, live external Tapis resources or automatic model download.
 
+## Publication corrections
+
+All four native builds and ZIP assembly pass in run 40239046952. Initial release
+creation failed because the workflow target differs from the default branch;
+the standard token cannot authorize new workflow-bearing tags. Creating the
+exact tag with the authorized Git connection resolved creation. Draft validation
+then hit 404 through the public tag lookup. Re-plan publication around existing
+tags, authenticated draft enumeration, numeric release ID and verified assets.
+Keep builds unchanged and repeat actual publication after workflow lint/tests.
+
 ## Verification checkpoint
 
 Nine public packaging/script tests pass. The actual Bash entry passes five checks with real Release Gateway/FCS and full 65-tool Pack; only uname/Slurm are explicitly fixture replacements. TACC/OSC/GPU installation remains unexecuted. All new Actions workflows pass actionlint. Shared Linux scripts are used by component and Deployer CI. Private-source publishing requires FLEXSERV_SOURCE_TOKEN (or an existing all-source read token); authentication and fixed-revision checkout now pass. Never request/publish its value.
