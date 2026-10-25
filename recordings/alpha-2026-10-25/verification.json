@@ -31,7 +31,7 @@
     "packaging_tests": 3
   },
   "deployer": {
-    "unit_tests": 8,
+    "unit_tests": 9,
     "workflow_lint": "PASS",
     "shell_syntax": "PASS including Bash 3.2"
   },
@@ -48,10 +48,10 @@
   },
   "actions": {
     "gateway_run": "https://github.com/zhangwei217245/FlexServ/actions/runs/40235178272",
-    "gateway_state": "IN_PROGRESS",
+    "gateway_state": "BOTH_LINUX_TEST_BUILD_ABI_PASSED; SOURCE_IDENTITY_RECORDING_FAILED_AND_FIXED",
     "wire_contracts": "SUCCESS",
-    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40236663779",
-    "deployer_state": "SOURCE_SECRET_PRESENT_BUT_GITHUB_401_BAD_CREDENTIALS",
+    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40237059701",
+    "deployer_state": "SOURCE_AUTHENTICATION_PASS; NATIVE_MATRIX_IN_PROGRESS",
     "fcs_and_pack_runs": "API connection lacks access; not asserted as passed"
   },
   "not_run": [

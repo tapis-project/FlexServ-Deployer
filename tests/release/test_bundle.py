@@ -94,6 +94,12 @@ class Bundle(unittest.TestCase):
             subprocess.run(['/bin/bash','-euc',command,'test',str(ROOT/'hpc_archive/scripts/launch-flexserv.sh'),str(root),run],check=True)
             self.assertFalse((root/'tmp/tls').exists());self.assertEqual((root/'runtime/status').read_text(),'retained')
 
+    def test_plaintext_tunnel_cannot_bind_publicly(self):
+        command='source "$1"; PROTOCOL=http; FLEXSERV_TUNNEL_BIND=0.0.0.0; concrete_setup_reverse_tunnels'
+        result=subprocess.run(['/bin/bash','-ec',command,'test',str(ROOT/'hpc_archive/scripts/site/tacc.sh')],capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('requires HTTPS',result.stderr)
+
     def test_no_allocation_is_rejected(self):
         env=dict(os.environ);env.pop('SLURM_JOB_ID',None);env.pop('SLURM_JOB_NODELIST',None)
         result=subprocess.run(['bash',str(ROOT/'hpc_archive/app/run_flexserv.sh'),'--control-plane-only'],env=env,capture_output=True,text=True)

@@ -66,11 +66,12 @@ discovery precede removal of `tmp/tls`. Persistent manifest/status are under
 `runtime/<run-id>`. A missing peer, invalid identity, expired job, startup timeout
 or cleanup error prevents ready publication. Restart recovery is unsupported.
 
-TACC sources `/share/doc/slurm/tap_functions` (override `TAP_FUNCTIONS`), uses TAP
+TACC defaults to HTTPS and sources `/share/doc/slurm/tap_functions` (override `TAP_FUNCTIONS`), uses TAP
 token/port/certificate, and opens foreground SSH processes to configured
 `FLEXSERV_LOGIN_NODES` (default login1..4). Site SSH configuration must permit
 the requested reverse forwarding (`GatewayPorts clientspecified` for the default
-public remote bind). Override `FLEXSERV_TUNNEL_BIND` or `FLEXSERV_PUBLIC_HOST` for
+public HTTPS remote bind). Setting ENABLE_HTTPS=0 restricts reverse forwarding
+to login-node loopback; add a laptop SSH forward for that HTTP-only mode. Override `FLEXSERV_TUNNEL_BIND` or `FLEXSERV_PUBLIC_HOST` for
 site policy and public DNS; the default public host resolves the configured login
 SSH alias, never the compute node. At least one tunnel must stay alive through
 setup. HTTPS certificate and internal mTLS identity are separate.

@@ -48,11 +48,18 @@ concrete_setup_cert_tls() {
     fi
 }
 concrete_setup_reverse_tunnels() {
-    local node
+    local node remote_bind=${FLEXSERV_TUNNEL_BIND:-}
+    if [[ -z "$remote_bind" ]]; then
+        if [[ "$PROTOCOL" == https ]]; then remote_bind=0.0.0.0; else remote_bind=127.0.0.1; fi
+    fi
+    if [[ "$PROTOCOL" == http && "$remote_bind" != 127.0.0.1 ]]; then
+        echo 'Public TAP access requires HTTPS; use a loopback remote bind for an SSH-only HTTP session.' >&2
+        return 1
+    fi
     for node in ${FLEXSERV_LOGIN_NODES:-login1 login2 login3 login4}; do
         ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 \
             -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -g -N -T \
-            -R "${FLEXSERV_TUNNEL_BIND:-0.0.0.0}:${LOGIN_PORT}:127.0.0.1:${LOCAL_PORT}" "$node" \
+            -R "${remote_bind}:${LOGIN_PORT}:127.0.0.1:${LOCAL_PORT}" "$node" \
             >>"$FLEXSERV_JOB_DIR/logs/tunnel.log" 2>&1 &
         TUNNEL_PIDS+=("$!")
     done
@@ -73,7 +80,12 @@ concrete_setup_reverse_tunnels() {
     (( alive > 0 )) || { echo 'No TACC reverse tunnel could be established.' >&2; return 1; }
 }
 concrete_setup_access_url() {
-    FLEXSERV_ACCESS_URL="${PROTOCOL}://${FLEXSERV_PUBLIC_HOST:?Missing successful login host}:${LOGIN_PORT}"
+    if [[ "$PROTOCOL" == http ]]; then
+        FLEXSERV_ACCESS_URL="http://127.0.0.1:${LOGIN_PORT}"
+        printf 'SSH-only access: forward laptop port %s to 127.0.0.1:%s on %s.\n' "$LOGIN_PORT" "$LOGIN_PORT" "$FLEXSERV_PUBLIC_HOST"
+    else
+        FLEXSERV_ACCESS_URL="https://${FLEXSERV_PUBLIC_HOST:?Missing successful login host}:${LOGIN_PORT}"
+    fi
     export FLEXSERV_ACCESS_URL
 }
 concrete_cleanup_site_resources() {

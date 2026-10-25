@@ -46,6 +46,13 @@ jobs:
       - name: Prepare build-only dependencies
         shell: bash
         run: bash scripts/prepare_ci_linux.sh '${{ matrix.arch }}'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /root/.cargo/registry
+            /root/.cargo/git
+            target
+          key: native-v1-${{ inputs.component }}-${{ matrix.platform }}-rust1.99.1-${{ hashFiles('**/Cargo.lock') }}
       - name: Test and compile exact source revision
         shell: bash
         run: bash scripts/build_linux_release.sh '${{ matrix.arch }}'
