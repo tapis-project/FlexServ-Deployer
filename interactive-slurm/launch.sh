@@ -30,6 +30,17 @@ fi
 : "${FCS_MCP_TOKEN:?Set FCS_MCP_TOKEN without putting it in command arguments}"
 : "${FLEXSERV_ADMIN_SECRET:?Set a separate FLEXSERV_ADMIN_SECRET}"
 
+# Optional configuration is never synthesized as an implicit permission grant.
+# Reject stale site.env paths before creating a session or launching a Slurm step.
+for setting in FCS_DEPLOY_POLICY FCS_CONNECTIONS FCS_WORKFLOW_POLICY GATEWAY_ROUTING_POLICY; do
+    filename=${!setting:-}
+    if [[ -n $filename && ( ! -f $filename || ! -r $filename ) ]]; then
+        printf 'Error: %s points to a missing or unreadable file: %s\n' "$setting" "$filename" >&2
+        printf 'Create and review that configuration first, or unset %s if it is not needed. See interactive-slurm/README.md.\n' "$setting" >&2
+        exit 2
+    fi
+done
+
 export TZ=UTC SLURM_EXPORT_ENV=ALL
 SRUN_BIN=$(command -v srun)
 SCONTROL_BIN=$(command -v scontrol)
