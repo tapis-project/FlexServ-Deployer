@@ -2,7 +2,8 @@
 # Tapis enters inside an existing Slurm allocation. Keep orchestration sequential.
 set -euo pipefail
 umask 077
-export FLEXSERV_JOB_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# Resolve an administrator's directory alias before Rust anchors private job files.
+export FLEXSERV_JOB_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 if [[ ${1:-} == --help ]]; then
     echo 'Usage: run_flexserv.sh [--control-plane-only]'
     echo 'Runs Gateway on the first Slurm node and one FCS on every allocated node.'

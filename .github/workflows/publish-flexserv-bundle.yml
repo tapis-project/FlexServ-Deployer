@@ -2,6 +2,7 @@ name: Publish Tapis FlexServ Alpha Bundle
 on:
   push:
     branches: [feature/1.5.0]
+    paths: ['hpc_archive/**', 'scripts/**', 'tests/release/**', '.github/workflows/build-component.yml', '.github/workflows/publish-flexserv-bundle.yml']
   workflow_dispatch:
     inputs:
       gateway_ref:

@@ -18,21 +18,21 @@
   "pack_sha256": "59d424e2272942aa60fb868010e9f102688d1cf3ac84c9e3f8583eddd885b4d3",
   "scenario": {
     "checks": [
-      "actual run_flexserv entry invokes bundled install, one-node launch and template access functions",
+      "actual run_flexserv entry resolves a job-directory alias before bundled install, one-node launch and template access functions",
       "private access info and retained manifest are published only after TLS staging deletion",
       "full 65-tool merged Pack loads without Tapis credentials and public MCP authenticates/discovers both namespaces",
       "public readiness is reachable and ordinary logs contain neither access nor administrator secret",
       "SIGTERM executes shell cleanup, reaps both owned roles and closes all ports while retaining evidence"
     ],
     "passed": 5,
-    "seconds": 3.568,
-    "entry_pid": 46186,
+    "seconds": 3.31,
+    "entry_pid": 63416,
     "owned_roles": [
-      46232,
-      46252
+      63603,
+      63611
     ],
     "all_owned_roles_gone": true,
-    "temporary_job_removed_on_return": "/private/tmp/flexserv-alpha-script-b91iod6u",
+    "temporary_job_removed_on_return": "/private/tmp/flexserv-alpha-script-q0ql_2fg",
     "discovered_tools": 40,
     "pack_tools": 65
   }

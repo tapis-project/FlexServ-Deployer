@@ -15,6 +15,8 @@ preparation, launch, tunnel setup, access-info publication, and foreground wait.
 Every node runs one Capability Server; rank zero has `head` and `worker`, others
 have `worker`. An EXIT trap stops owned jobs and releases site ports. No restart,
 external PID adoption, database, container or model download is involved.
+The entry resolves the job directory to its physical path before generating
+private runtime files, including when launched through a directory alias.
 
 ## Environment and permissions
 

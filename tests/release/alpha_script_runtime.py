@@ -154,6 +154,8 @@ async def scenario(args):
         root = Path(temporary).resolve()
         root.chmod(0o700)
         bundle = assemble_fixture(root, args)
+        entry_alias = root / 'job-alias'
+        entry_alias.symlink_to(bundle, target_is_directory=True)
         fixtures = scheduler_fixtures(root)
         selected_port = port()
         environment = dict(os.environ)
@@ -173,7 +175,7 @@ async def scenario(args):
         output = root / 'entry.log'
         identities = {}
         with output.open('wb') as log:
-            child = await asyncio.create_subprocess_exec('bash', str(bundle / 'app/run_flexserv.sh'),
+            child = await asyncio.create_subprocess_exec('bash', str(entry_alias / 'app/run_flexserv.sh'),
                 '--control-plane-only', env=environment, cwd=bundle, stdout=log, stderr=log)
             try:
                 access = bundle / 'flexserv_access_info.txt'
@@ -194,7 +196,7 @@ async def scenario(args):
                 assert f'FlexServ token: {TOKEN}' in lines
                 url = next(line.split(': ', 1)[1] for line in lines if line.startswith('FlexServ URL: '))
                 assert url == f'http://127.0.0.1:{selected_port}'
-                checks.append('actual run_flexserv entry invokes bundled install, one-node launch and template access functions')
+                checks.append('actual run_flexserv entry resolves a job-directory alias before bundled install, one-node launch and template access functions')
                 checks.append('private access info and retained manifest are published only after TLS staging deletion')
                 fcs_pid = json.loads(witness.read_text())['pid']
                 candidates = direct_children(child.pid)
