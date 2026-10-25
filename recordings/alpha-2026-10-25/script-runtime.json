@@ -1,0 +1,39 @@
+{
+  "stage": "Alpha actual Bash entry",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "fixture_only_linux_labels": true,
+  "real_slurm": "NOT RUN",
+  "real_gpu_vllm": "NOT RUN",
+  "linux_release_abi": "NOT TESTED BY THIS FIXTURE",
+  "binaries": {
+    "gateway": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/release/flexserv-gateway",
+      "sha256": "f871874a7a42d3b4c272bb0b29d0c8d940c7328fc3fd3b9626cd7fe49659089d"
+    },
+    "server": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/fcs-deploy-node-v013/target/release/flexserv-capability-server",
+      "sha256": "1372305e1c52309a0b49fc442a8ed239c5b359dfec1c87b55006ac8f7110c2d2"
+    }
+  },
+  "pack_sha256": "59d424e2272942aa60fb868010e9f102688d1cf3ac84c9e3f8583eddd885b4d3",
+  "scenario": {
+    "checks": [
+      "actual run_flexserv entry invokes bundled install, one-node launch and template access functions",
+      "private access info and retained manifest are published only after TLS staging deletion",
+      "full 65-tool merged Pack loads without Tapis credentials and public MCP authenticates/discovers both namespaces",
+      "public readiness is reachable and ordinary logs contain neither access nor administrator secret",
+      "SIGTERM executes shell cleanup, reaps both owned roles and closes all ports while retaining evidence"
+    ],
+    "passed": 5,
+    "seconds": 3.223,
+    "entry_pid": 34928,
+    "owned_roles": [
+      35104,
+      35116
+    ],
+    "all_owned_roles_gone": true,
+    "temporary_job_removed_on_return": "/private/var/folders/8g/nrnrgqx90md2scp6205898kh0000gp/T/flexserv-alpha-script-yxt0kejw",
+    "discovered_tools": 40,
+    "pack_tools": 65
+  }
+}

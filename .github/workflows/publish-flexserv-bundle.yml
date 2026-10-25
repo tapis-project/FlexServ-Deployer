@@ -1,73 +1,117 @@
-name: Publish Tapis Job Bundle
-
+name: Publish Tapis FlexServ Alpha Bundle
 on:
+  push:
+    branches: [feature/1.5.0]
   workflow_dispatch:
     inputs:
+      gateway_ref:
+        description: Gateway source branch or immutable commit
+        default: feature/1.5.0-alpha
+        type: string
+      fcs_ref:
+        description: v0.13 FCS source branch or immutable commit
+        default: feature/new_fcs
+        type: string
+      pack_ref:
+        description: Unified Pack branch or immutable commit
+        default: flexserv/new_fcs
+        type: string
       publish_release:
-        description: "Publish zip as a GitHub Release asset"
-        required: true
         default: true
         type: boolean
       tag:
-        description: "Optional release tag (for example: tapis-flexserv-1.5.0)"
-        required: false
+        description: Release tag (empty creates a run-specific alpha tag)
         type: string
-
+permissions:
+  contents: read
 jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      gateway: ${{ steps.resolve.outputs.gateway }}
+      fcs: ${{ steps.resolve.outputs.fcs }}
+      pack: ${{ steps.resolve.outputs.pack }}
+    steps:
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
+          SOURCE_READ_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN }}
+          GATEWAY_REF: ${{ inputs.gateway_ref || 'feature/1.5.0-alpha' }}
+          FCS_REF: ${{ inputs.fcs_ref || 'feature/new_fcs' }}
+          PACK_REF: ${{ inputs.pack_ref || 'flexserv/new_fcs' }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess,urllib.parse
+          if not os.environ.get('SOURCE_READ_TOKEN'):
+              raise SystemExit('Configure FLEXSERV_SOURCE_TOKEN (or existing FCS_ARTIFACT_READ_TOKEN) with read access to all three private source repositories before publishing')
+          repos={'gateway':('zhangwei217245/FlexServ','GATEWAY_REF'),'fcs':('tapis-project/FlexServ-FCS','FCS_REF'),'pack':('tapis-project/FlexServ-FCS-Pack','PACK_REF')}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              for key,(repo,var) in repos.items():
+                  ref=urllib.parse.quote(os.environ[var],safe='')
+                  result=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/commits/{ref}']))
+                  sha=result['sha']
+                  if len(sha)!=40 or any(c not in '0123456789abcdef' for c in sha): raise SystemExit('Invalid source revision')
+                  output.write(f'{key}={sha}\n')
+          PY
+  gateway:
+    needs: resolve
+    uses: ./.github/workflows/build-component.yml
+    secrets: inherit
+    with:
+      repository: zhangwei217245/FlexServ
+      component: flexserv-gateway
+      source-ref: ${{ needs.resolve.outputs.gateway }}
+  fcs:
+    needs: resolve
+    uses: ./.github/workflows/build-component.yml
+    secrets: inherit
+    with:
+      repository: tapis-project/FlexServ-FCS
+      component: flexserv-capability-server
+      source-ref: ${{ needs.resolve.outputs.fcs }}
   bundle:
-    runs-on: ubuntu-latest
+    needs: [resolve, gateway, fcs]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Compute bundle metadata
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.tag }}" ]; then
-              TAG="${{ inputs.tag }}"
-          else
-              TAG="tapis-flexserv-$(date +'%Y%m%d-%H%M%S')"
-          fi
-          ZIP_NAME="Tapis-FlexServ.zip"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Build zip with required structure
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf dist
-          mkdir -p dist/package/app
-
-          cp hpc_archive/tapisjob.manifest dist/package/tapisjob.manifest
-          cp hpc_archive/app/run_flexserv.sh dist/package/app/run_flexserv.sh
-          chmod +x dist/package/app/run_flexserv.sh
-
-          (
-              cd dist/package
-              zip -r "../${{ steps.meta.outputs.zip_name }}" tapisjob.manifest app/run_flexserv.sh
-          )
-
-          echo "Created dist/${{ steps.meta.outputs.zip_name }}"
-          unzip -l "dist/${{ steps.meta.outputs.zip_name }}"
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          name: tapisjob-bundle
-          path: dist/${{ steps.meta.outputs.zip_name }}
+          persist-credentials: false
+          repository: tapis-project/FlexServ-FCS-Pack
+          token: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
+          ref: ${{ needs.resolve.outputs.pack }}
+          path: selected-pack
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-linux-*'
+          path: dist/binaries
+          merge-multiple: true
+      - name: Package exact Pack and verify source identity
+        env:
+          GATEWAY_SHA: ${{ needs.resolve.outputs.gateway }}
+          FCS_SHA: ${{ needs.resolve.outputs.fcs }}
+          PACK_SHA: ${{ needs.resolve.outputs.pack }}
+        run: |
+          python3 selected-pack/scripts/package_pack.py selected-pack/pack dist/flexserv-capability-pack.zip
+          python3 scripts/record_bundle_sources.py --binaries dist/binaries --output dist/revisions.json
+      - name: Test scripts and package complete Tapis ZIP
+        run: |
+          for file in hpc_archive/app/*.sh hpc_archive/scripts/*.sh hpc_archive/scripts/site/*.sh; do bash -n "$file"; done
+          python3 -m unittest discover -s tests/release
+          python3 scripts/assemble_bundle.py --source hpc_archive --binaries dist/binaries --pack dist/flexserv-capability-pack.zip --revisions dist/revisions.json --output dist/Tapis-FlexServ.zip
+          unzip -t dist/Tapis-FlexServ.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tapis-FlexServ
+          path: dist/Tapis-FlexServ.zip*
           if-no-files-found: error
-
-      - name: Publish GitHub Release asset
-        if: ${{ inputs.publish_release }}
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: Tapis Job Bundle (${{ steps.meta.outputs.tag }})
-          generate_release_notes: false
-          files: |
-            dist/${{ steps.meta.outputs.zip_name }}
+      - if: github.event_name == 'push' || inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          tag=${RELEASE_TAG:-tapis-flexserv-1.5.0-alpha-${GITHUB_RUN_NUMBER}}
+          gh release create "$tag" dist/Tapis-FlexServ.zip* --prerelease --title "$tag" --target "$GITHUB_SHA" --generate-notes

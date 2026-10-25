@@ -1,3 +1,11 @@
+# FlexServ Deployer
+
+The 1.5 Alpha native deployment entry is the published `Tapis-FlexServ.zip`.
+It contains Gateway/FCS for Linux x86_64 and aarch64, one merged v0.13 Pack, and
+simple Slurm scripts. Start at [Alpha deployment](docs/ALPHA_DEPLOYMENT.md) or
+[interactive Slurm](interactive-slurm/README.md). The existing Rust Tapis client
+library below is separate from the job launcher.
+
 ## FlexServ Deployer
 
 For the minimal current Gateway + v0.13 FCS launch inside an interactive Slurm

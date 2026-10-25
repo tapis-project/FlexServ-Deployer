@@ -1,192 +1,30 @@
-# Minimal interactive Slurm launch for FlexServ 1.5
+# Interactive Slurm launch
 
-This standalone directory launches the `feature/1.5.0` Gateway and current v0.13
-FCS through the existing `flexserv-bootstrap`. It does not use the old deployer
-library, old FCS registration endpoints, Tapis or a batch-job wrapper.
-
-The first hostname returned by `scontrol show hostnames "$SLURM_JOB_NODELIST"`
-hosts Gateway and Bootstrap. Every allocated node, including the first, runs one
-FCS through Bootstrap's `srun` step. Ranks start at zero; all FCS instances have
-the `worker` role and rank zero also has `head`. Registration means Bootstrap's
-trusted manifest plus Gateway's active Streamable HTTP discovery over job mTLS;
-FCS does not POST a registration or heartbeat.
-
-## Prepare once
-
-Use Linux builds matching the compute nodes, Python 3, Bash, `srun` and `scontrol`.
-Binaries, scripts, Pack, site policies and `STATE_ROOT` must be visible at the
-same paths on every node. Load any required site modules before launching.
-With Rust 1.99 and the two source checkouts already available on shared storage:
+Download and extract the published `Tapis-FlexServ.zip` onto shared storage.
+Inside an existing allocation, set `FLEXSERV_BUNDLE_DIR` to that directory:
 
 ```bash
-
-# Confirm GCC/G++ locations
-which gcc
-which g++
-
-# if cannot be found, install gcc and g++ using your package manager, e.g., apt or yum
-# or load a module providing GCC/G++ if your site uses environment modules
-
-# module load gcc
-
-# Explicitly select GCC/G++ for native builds
-export CC="$(command -v gcc)"
-export CXX="$(command -v g++)"
-
-# Explicitly select GCC/G++ for AWS-LC
-export AWS_LC_SYS_CC="$CC"
-export AWS_LC_SYS_CXX="$CXX"
-
-
-cd /shared/flexserv  # Parent directory containing both source checkouts.
-# FlexServ checkout: feature/1.5.0
-cargo build --release --manifest-path FlexServ/flexserv/gateway/Cargo.toml
-cargo build --release --manifest-path FlexServ/flexserv/bootstrap/Cargo.toml
-# FCS checkout: current v0.13 implementation on feature/new_fcs
-cargo build --release --manifest-path fcs-deploy-node-v013/Cargo.toml --bin mcp-bashkit-server
+export FLEXSERV_BUNDLE_DIR=/shared/flexserv/bundle
+bash interactive-slurm/launch.sh --control-plane-only
 ```
 
-Supply an operator-approved v1alpha2 Pack payload containing `checksums.sha256`.
-The launcher pins the current inventory and Bootstrap pins binary bytes. To
-require a previously reviewed inventory, set `FCS_PACK_SHA256` to its SHA-256.
-This is operator approval of the selected files, not publisher-signature checking.
-Unsigned demo mode is not used on Slurm. The default tool grants match the seven
-public vLLM wrappers; set `MCP_ALLOWED_TOOLS` for another Pack. Site deployment
-permissions still authorize the principal and tools independently.
+The wrapper delegates to the same `app/run_flexserv.sh` used by Tapis. It does
+not compile code, use a Bootstrap binary, or maintain separate policies. Drop
+`--control-plane-only` to prepare the configured inference environments. Set an
+owned/private `FLEXSERV_VENV_ROOT` if the shared site default is unsuitable.
 
-## Launch inside an interactive allocation
+See [the Alpha deployment guide](../docs/ALPHA_DEPLOYMENT.md) for site variables,
+TAP/OOD access, environment preparation, TLS cleanup and credential handling.
+The ignored `site.env` is never overwritten. Retired BOOTSTRAP_BIN/FCS_BIN and
+manual policy variables are not used by this wrapper.
 
-Obtain the allocation using your site's normal command, for example
-`salloc -N 2 -t 01:00:00` with the required account/partition options. Then:
+For a manual laptop tunnel, the standalone helper remains available:
 
 ```bash
-cp interactive-slurm/env.example interactive-slurm/site.env
-# Edit site.env to use your shared binaries and approved Pack.
-# Deployment policy is optional for control-plane startup and discovery.
-source interactive-slurm/site.env
-
-read -r -s -p 'MCP bearer token: ' FCS_MCP_TOKEN; echo
-export FCS_MCP_TOKEN
-read -r -s -p 'Gateway administrator secret (different): ' FLEXSERV_ADMIN_SECRET; echo
-export FLEXSERV_ADMIN_SECRET
-
-bash interactive-slurm/launch.sh
+bash interactive-slurm/tunnel.sh USER@LOGIN_HOST COMPUTE_NODE 8000 8000
 ```
 
-The launcher moves itself to the first node with a small overlapping `srun` step
-if the allocation shell is elsewhere. Bootstrap starts another overlapping step
-for all FCS instances. The site must permit overlapping steps and shared files.
-Both steps request one CPU per task by default; `FCS_CPUS_PER_TASK` changes the
-FCS request. GPU allocation and binding remain the site's Slurm responsibility.
-
-The Run ends at the earlier of `RUN_SECONDS` (default 3600) or ten seconds before
-the scheduler's finite EndTime. Keep the launch command in the foreground.
-Ctrl-C asks Bootstrap to clean up its owned processes and ephemeral Run keys.
-The printed private session directory retains launch configuration, Gateway logs
-and diagnostic archives for inspection. Remove that specific directory after
-reviewing it and confirming shutdown; shared model repositories are not removed.
-
-This starts the control plane, not a vLLM model. Backend deployment and inference
-route approval are later manual calls; `GATEWAY_ROUTING_POLICY` optionally supplies
-the existing site-approved routing contract. No model download, Python install,
-port retry, restart recovery or PID adoption is performed here.
-
-## Deployment policy
-
-`FCS_DEPLOY_POLICY` is optional for starting this control plane and discovering
-the default vLLM Pack's tools. It is host authorization for local execution:
-approved filesystem paths, executable aliases, environment names, principals,
-hardware profiles and deployment limits. A Pack describes what a tool does;
-the host policy determines which local resources it may use. Without a policy,
-local deployment calls fail closed rather than gaining implicit permissions.
-
-Earlier `env.example` versions exported a nonexistent `site/deploy-policy.yaml`.
-That was an incomplete example, not a file generated by Bootstrap. If you copied
-that version, remove its `export FCS_DEPLOY_POLICY=...` line from `site.env` and
-clear the old value before starting the control plane:
-
-```bash
-unset FCS_DEPLOY_POLICY
-bash interactive-slurm/launch.sh
-```
-
-`git pull` does not replace your ignored `site.env` or clear values already
-exported in the shell. Other optional site files must also exist when enabled.
-If you only want to validate the control plane and have not prepared any site
-configuration or model directories yet, remove their exports from `site.env` and
-clear all of those optional values:
-
-```bash
-unset FCS_DEPLOY_POLICY FCS_CONNECTIONS FCS_WORKFLOW_POLICY GATEWAY_ROUTING_POLICY
-unset PUB_MODEL_REPO PRI_MODEL_REPO
-```
-
-For actual vLLM deployment, use the existing FCS policy generator instead of
-inventing another policy schema here. From the FCS checkout, with its Python
-generator dependencies available:
-
-```bash
-python3 scripts/configure_vllm.py \
-  --server "$FCS_BIN" \
-  --root /your/private/shared/deployment-root \
-  --ports 18100 18115 \
-  --python /your/python/bin/python3 \
-  --uv /your/home/.local/bin/uv \
-  --probe /your/site/bin/fcs-host-probe \
-  --output /your/private/shared/site
-```
-
-The paths above must be replaced with actual site programs and private canonical
-directories. Before starting FCS, create the root's `runtimes`, `models` and `work`
-directories as the service account, without group/world write permission. The
-generator writes **`deployment.yaml`**, `connections.yaml` and `workflow.yaml`;
-it does not write `deploy-policy.yaml`. Review them before use:
-
-```bash
-export FCS_DEPLOY_POLICY=/your/private/shared/site/deployment.yaml
-# Enable the other generated files only when their required configuration is ready:
-# export FCS_CONNECTIONS=/your/private/shared/site/connections.yaml
-# export FCS_WORKFLOW_POLICY=/your/private/shared/site/workflow.yaml
-```
-
-The current generator defaults to dummy execution and principal `demo-user`.
-Use matching `MCP_PRINCIPAL=demo-user`, or review the generated principal grants
-to match your existing caller. `--real` selects native execution; it does not
-install or approve the site's software/hardware. Generated connections reference
-`FCS_VLLM_API_KEY`, which must be set before enabling that connections file.
-The default loopback addresses, GPU grants and hardware presets also require
-site review before real multi-node deployment. This is a preparation example,
-not a preapproved production policy. Older Packs using legacy `deploy.*` steps
-can require a policy at startup as well; the optional behavior above refers to
-the current v0.13 vLLM Pack.
-
-## Forward Gateway to your laptop
-
-In a second terminal **on your laptop**, use the Gateway node printed at launch:
-
-```bash
-bash interactive-slurm/tunnel.sh USER@LOGIN_HOST COMPUTE_NODE_0 8000
-curl -f http://127.0.0.1:8000/healthz/ready
-```
-
-The tunnel binds laptop loopback only. It connects through the login host to the
-Gateway HTTP listener on the first node; that login-to-compute hop must be allowed
-by the site. Internal Gateway-to-FCS connections continue to use job mTLS.
-For an entirely SSH-encrypted route where compute-node SSH is permitted, bind
-Gateway to `127.0.0.1` and use
-`ssh -J USER@LOGIN_HOST -N -L 8000:127.0.0.1:8000 USER@COMPUTE_NODE_0` instead.
-
-Use `http://localhost:8000/mcp` with an MCP Streamable HTTP client and
-`Authorization: Bearer <FCS_MCP_TOKEN>` for tool discovery and calls. The separate
-administrator secret is not an MCP credential. The helper's optional fourth
-argument selects a different laptop port; in that case, override the MCP client's
-Host header to `localhost:<GATEWAY_PORT>` to match the approved authority.
-Gateway operation status/result/cancel/list controls are enabled for the same
-principal. Live WebSocket subscriptions and browser-Origin configuration are not
-enabled by this minimal launcher.
-
-## Local checks
-
-`bash -n` checks both scripts; the embedded Python is syntax-checked separately.
-No real Slurm allocation, SSH tunnel or HPC startup has been executed by this
-change. Actual site configuration and first deployment will be checked on HPC.
+The compute listener must be reachable from the login node; for a loopback-only
+listener use an SSH jump to the compute node or the bundle's site tunnel. Keep
+the main launcher foreground; Ctrl-C stops its owned processes. No restart
+recovery, model download or external Tapis submission is performed.
