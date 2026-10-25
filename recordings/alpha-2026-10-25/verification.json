@@ -50,8 +50,8 @@
     "gateway_run": "https://github.com/zhangwei217245/FlexServ/actions/runs/40235178272",
     "gateway_state": "IN_PROGRESS",
     "wire_contracts": "SUCCESS",
-    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40235286399",
-    "deployer_state": "FAILED_PREFLIGHT_MISSING_SOURCE_READ_SECRET",
+    "deployer_run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40236663779",
+    "deployer_state": "SOURCE_SECRET_PRESENT_BUT_GITHUB_401_BAD_CREDENTIALS",
     "fcs_and_pack_runs": "API connection lacks access; not asserted as passed"
   },
   "not_run": [

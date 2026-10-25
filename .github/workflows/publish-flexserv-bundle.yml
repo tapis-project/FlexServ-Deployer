@@ -114,4 +114,17 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           tag=${RELEASE_TAG:-tapis-flexserv-1.5.0-alpha-${GITHUB_RUN_NUMBER}}
-          gh release create "$tag" dist/Tapis-FlexServ.zip* --prerelease --title "$tag" --target "$GITHUB_SHA" --generate-notes
+          gh release create "$tag" dist/Tapis-FlexServ.zip* --draft --prerelease --title "$tag" --target "$GITHUB_SHA" --generate-notes
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > dist/uploaded-release.json
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          published=json.loads(pathlib.Path('dist/uploaded-release.json').read_text())
+          assets={a['name']:a for a in published['assets']}
+          expected=[pathlib.Path('dist/Tapis-FlexServ.zip'),pathlib.Path('dist/Tapis-FlexServ.zip.sha256')]
+          if set(assets)!={p.name for p in expected}: raise SystemExit('Incomplete draft release; leaving unpublished')
+          for p in expected:
+              a=assets[p.name]
+              if a['size']!=p.stat().st_size or (a.get('digest') and a['digest']!='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()):
+                  raise SystemExit('Uploaded asset mismatch; leaving draft unpublished')
+          PY
+          gh release edit "$tag" --draft=false
