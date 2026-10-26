@@ -15,5 +15,6 @@
   releases from tapis-project and assembles them; never reintroduce Rust builds
   or personal-fork component sources into its release workflow.
 - Keep the 1.5.0 Tapis App URL at `tapis-flexserv-1.5.0-alpha-44` until the Beta
-  transition. Refresh its assets only from a verified Alpha release; retain each
-  candidate's immutable archive and record actual commits in BUILD.json.
+  transition. Refresh its assets only from a verified branch assembly; do not
+  create additional Deployer Alpha tags. Retain run-specific artifacts and record
+  actual commits in BUILD.json.

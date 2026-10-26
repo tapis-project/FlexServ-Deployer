@@ -30,12 +30,22 @@ records repository, tag, commit, release ID and asset hashes for each component,
 plus the Deployer revision and merged Pack digest. Internal Gateway/FCS mutual
 TLS and the public HTTP/HTTPS switch remain independent and unchanged.
 
-Component releases require an existing tag at the selected source commit. Push
-the tag to the appropriate tapis-project repository, or select it in that
-repository's manual workflow. This avoids granting Actions workflow-write access
-merely to create tags. Pack and script changes need no Gateway/FCS rebuild.
+Gateway/FCS branch pushes run lightweight publication fixtures. Native binaries
+are built for their component release tags or explicit manual dispatch. Pack
+branch checks package data only. Deployer branch pushes assemble released inputs
+and refresh the existing Alpha 44 assets after all checks pass; a manual build can
+leave publication disabled. No new Deployer tag or release is created.
+
+Component releases require an existing tag at their selected source commit. Push
+the tag to the appropriate tapis-project component repository, or select it in
+that repository's manual workflow. Pack and script changes need no Gateway/FCS
+rebuild.
 
 The existing `FLEXSERV_SOURCE_TOKEN` is used only to read component releases.
-The Deployer's own `GITHUB_TOKEN` publishes its final ZIP and refreshes the fixed
-`tapis-flexserv-1.5.0-alpha-44` URL until the Beta transition. Exact component tags
-remain independently selectable after later releases appear.
+The Deployer's own `GITHUB_TOKEN` refreshes
+`tapis-flexserv-1.5.0-alpha-44` until the Beta transition. The original Alpha 44
+Git tag remains unchanged. Each successful assembly retains a run/attempt-specific
+Actions artifact for 90 days; BUILD.json and the archive checksum identify its
+exact source and component assets. The release notes link to the current assembly
+commit and run. GitHub replaces ZIP and checksum separately; verify and retry a
+download during updates. A published 1.5.0 Beta freezes automatic Alpha promotion.

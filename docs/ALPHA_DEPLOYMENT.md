@@ -118,18 +118,14 @@ It does not embed
 mistral.rs, build a GPU variant, or install an optional engine. The checksum
 checks integrity, not publisher authenticity by itself.
 
-To build without publishing, run the workflow manually with `publish_release`
-disabled. To publish, create and push a `tapis-flexserv-*` tag at the intended
-Deployer commit. The tag push runs the pipeline and publishes that existing tag.
-Manual publication likewise
-requires an existing `tag` identifying the selected Deployer commit; a mismatch
-fails before component downloads. This keeps the standard `GITHUB_TOKEN` sufficient
-without granting the source-read credential write access. GitHub's release
-endpoint can require workflow-write authorization when it creates a new tag
-whose target changes workflow files relative to the default branch; see the
-[Create a release requirements](https://docs.github.com/en/rest/releases/releases#create-a-release).
-Uploaded drafts are located through the authenticated release list and published
-by numeric ID only after asset checks; public tag lookup is not used for drafts.
+Pushing `feature/1.5.0-alpha` assembles published component releases and refreshes
+the fixed Alpha 44 download URL only after integrity and Pack checks pass. The
+workflow creates no Deployer tag or new release. The Alpha 44 Git tag remains
+at its original commit; BUILD.json and run-specific Actions artifacts identify
+current bytes. To build without publishing, run the workflow manually with
+`publish_release` disabled. Explicit component tags select reproducible inputs.
+Published Beta detection freezes Alpha updates. See the component release guide
+for source branches, credential boundaries and 90-day artifact retention.
 
 ## Private source repositories
 

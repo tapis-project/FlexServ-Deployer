@@ -78,5 +78,13 @@ the verified release; registration and real Slurm/TAP checks remain unexecuted.
   branches once, pin release IDs, check inventories/digests and reject bad assets.
 - [x] Merge the two verified Packs into the existing runtime catalog, recording
   component tags, commits and asset hashes in BUILD.json; preserve stable Alpha URL.
-- [ ] Run packaging, download-integrity, script and workflow checks. Record actual
+- [x] Run packaging, download-integrity, script and workflow checks. Record actual
   Actions execution separately; do not claim a native build from local fixtures.
+
+- [ ] Verify live component releases and final release-only ZIP assembly, including
+  fixed Alpha 44 asset refresh and downloaded checksums.
+
+Publication refinement: keep the existing Alpha 44 tag/release only. Automatic
+review rejected an unnecessary extra Deployer Alpha tag; none was created. Use
+verified branch assemblies plus run-specific Actions artifacts instead. Component
+repository release tags remain independent and immutable to their publishers.

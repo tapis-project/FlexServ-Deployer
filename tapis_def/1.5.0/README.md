@@ -7,8 +7,9 @@ Alpha 44 download URL, without Apptainer or an embedded inference engine.
 
 Until the Beta transition, this URL is a rolling Alpha channel. Subsequent
 verified Alpha builds refresh its ZIP and checksum without editing this App.
-Each build also retains its separate release; BUILD.json and the checksum identify
-the bytes and source commits. The alpha-44 Git tag stays at its original commit.
+Each assembly retains a separate Actions run/attempt artifact for 90 days;
+BUILD.json and the checksum identify its bytes and source commits. No additional
+Deployer release tag is created. The alpha-44 Git tag stays at its original commit.
 Beta releases never replace the Alpha assets; a published 1.5.0 Beta freezes
 further automatic Alpha promotion. GitHub replaces the two assets separately;
 retry a download if a checksum mismatch occurs during an update.

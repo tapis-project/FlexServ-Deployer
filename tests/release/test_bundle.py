@@ -48,37 +48,15 @@ class Bundle(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Missing architecture'):
                 module.assemble(ROOT/'hpc_archive',root,root/'unused',root/'out.zip',{})
 
-    def test_release_assets_must_match_before_draft_can_be_published(self):
-        """Exercise the workflow's actual validation against authenticated list fixtures."""
+    def test_deployer_keeps_the_existing_alpha_tag(self):
         workflow=(ROOT/'.github/workflows/publish-flexserv-bundle.yml').read_text()
-        blocks=re.findall(r"python3 - <<'PY'\n(.*?)\n          PY",workflow,re.S)
-        validation=next(textwrap.dedent(body) for body in blocks if 'import hashlib,json,os,pathlib' in body)
-        with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);dist=root/'dist';dist.mkdir()
-            assets=[]
-            for name,data in [('Tapis-FlexServ.zip',b'archive-fixture'),('Tapis-FlexServ.zip.sha256',b'checksum-fixture')]:
-                (dist/name).write_bytes(data)
-                assets.append(dict(name=name,size=len(data),digest='sha256:'+hashlib.sha256(data).hexdigest()))
-            release=dict(id=42,tag_name='fixture',draft=True,assets=assets)
-            cases=[('draft',[release],True,'draft'),
-                   ('published',[dict(release,draft=False)],True,'published'),
-                   ('missing',[dict(release,assets=assets[:1])],False,None),
-                   ('corrupt',[dict(release,assets=[dict(assets[0],digest='sha256:'+'0'*64),assets[1]])],False,None),
-                   ('missing_digest',[dict(release,assets=[dict(assets[0],digest=None),assets[1]])],False,None),
-                   ('ambiguous',[release,release],False,None)]
-            for name,records,success,state in cases:
-                with self.subTest(name=name):
-                    for path in [dist/'release-id.txt',dist/'release-state.txt']:
-                        path.unlink(missing_ok=True)
-                    (dist/'uploaded-releases.json').write_text(json.dumps([records]))
-                    result=subprocess.run([sys.executable,'-c',validation],cwd=root,
-                        env=dict(os.environ,RELEASE_TAG='fixture'),capture_output=True,text=True)
-                    self.assertEqual(result.returncode==0,success,result.stderr)
-                    if success:
-                        self.assertEqual((dist/'release-id.txt').read_text(),'42')
-                        self.assertEqual((dist/'release-state.txt').read_text(),state)
-                    else:
-                        self.assertFalse((dist/'release-id.txt').exists())
+        publisher=(ROOT/'scripts/update-alpha-channel.sh').read_text()
+        self.assertNotIn('gh release create', workflow+publisher)
+        self.assertNotIn('git tag', workflow+publisher)
+        self.assertNotIn('alpha-45', workflow+publisher)
+        self.assertIn('retention-days: 90', workflow)
+        self.assertIn('github.run_attempt', workflow)
+        self.assertIn('refs/heads/feature/1.5.0-alpha', publisher)
 
     def test_bash_syntax_and_help(self):
         for path in (ROOT/'hpc_archive').rglob('*.sh'):

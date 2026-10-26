@@ -65,7 +65,34 @@
         40352353150
       ],
       "workflow": "FCS middleware acceptance",
-      "cause": "Failure observed in optional build-status metadata; private job details unavailable to connected GitHub reader; not claimed as passing"
+      "cause": "Failure also predates this change (runs 40243414840 and 40238708257). Private job details unavailable to connected GitHub reader; not claimed as passing."
     }
-  ]
+  ],
+  "publication": {
+    "channel": "tapis-flexserv-1.5.0-alpha-44",
+    "new_deployer_tags": false,
+    "snapshot": "Actions artifact per run/attempt, retained 90 days",
+    "checks": [
+      "approved branch",
+      "BUILD source identity",
+      "checksum",
+      "published Beta freeze",
+      "mutable exact asset set",
+      "current branch HEAD",
+      "uploaded API digests"
+    ],
+    "cases": 10,
+    "review": "Independent read-only re-review passed 23 tests, workflow lint and Bash syntax"
+  },
+  "native_gateway": {
+    "run": 40352353290,
+    "result": "passed",
+    "architectures": [
+      "linux-x86_64",
+      "linux-aarch64"
+    ],
+    "release_id": 424482960,
+    "tag": "gateway-1.5.0-alpha-1",
+    "assets": 15
+  }
 }
