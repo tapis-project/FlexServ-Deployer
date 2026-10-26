@@ -50,5 +50,22 @@
     "GPU inference or online environment installation",
     "External Tapis resources"
   ],
-  "unrelated_test_limitation": "Broad FCS Python discovery requires httpx2, absent from system Python. Only the changed standard-library publication fixture is claimed locally; no dependency installation was needed for this change."
+  "unrelated_test_limitation": "Broad FCS Python discovery requires httpx2, absent from system Python. Only the changed standard-library publication fixture is claimed locally; no dependency installation was needed for this change.",
+  "unrelated_ci_failures": [
+    {
+      "repository": "tapis-project/FlexServ",
+      "run": 40352353788,
+      "workflow": "Build Transformers Backend Container",
+      "cause": "Pull access denied for legacy zhangwei217245/flexserv-gateway:latest; not part of native component release"
+    },
+    {
+      "repository": "tapis-project/FlexServ-FCS",
+      "runs": [
+        40352353605,
+        40352353150
+      ],
+      "workflow": "FCS middleware acceptance",
+      "cause": "Failure observed in optional build-status metadata; private job details unavailable to connected GitHub reader; not claimed as passing"
+    }
+  ]
 }
