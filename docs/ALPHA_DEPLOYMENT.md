@@ -110,9 +110,11 @@ Published: `app/`, `scripts/`, four `bin/*.bin`, one `pack/*.zip`, `BUILD.json`,
 `config/manifest/status`, `logs/`, `reports/` and private access-info. Venvs remain
 outside the job directory and are not deleted on exit. TLS staging is removed.
 
-GitHub Actions resolves component branches once to exact commits, calls the
-shared native build workflows, checks ELF glibc <=2.28 and declared dynamic
-libraries, then publishes `Tapis-FlexServ.zip` plus checksum. It does not embed
+GitHub Actions resolves component release tags once to exact IDs and commits,
+downloads their verified binaries and two Packs, and publishes `Tapis-FlexServ.zip`
+plus checksum. Native components are built and ABI-checked in their own
+repositories; Deployer never compiles them. See [component releases](COMPONENT_RELEASES.md).
+It does not embed
 mistral.rs, build a GPU variant, or install an optional engine. The checksum
 checks integrity, not publisher authenticity by itself.
 
@@ -121,7 +123,7 @@ disabled. To publish, create and push a `tapis-flexserv-*` tag at the intended
 Deployer commit. The tag push runs the pipeline and publishes that existing tag.
 Manual publication likewise
 requires an existing `tag` identifying the selected Deployer commit; a mismatch
-fails before compilation. This keeps the standard `GITHUB_TOKEN` sufficient
+fails before component downloads. This keeps the standard `GITHUB_TOKEN` sufficient
 without granting the source-read credential write access. GitHub's release
 endpoint can require workflow-write authorization when it creates a new tag
 whose target changes workflow files relative to the default branch; see the
@@ -132,12 +134,13 @@ by numeric ID only after asset checks; public tag lookup is not used for drafts.
 ## Private source repositories
 
 Set the Deployer Actions secret `FLEXSERV_SOURCE_TOKEN` to a credential with read
-access to the three selected private source repositories. An existing
+access to releases in the three selected private component repositories. An existing
 `FCS_ARTIFACT_READ_TOKEN` is also accepted when it has all three grants. The
 default GITHUB_TOKEN cannot read unrelated private repositories. Cross-owner
-private reusable-workflow sharing is not required: the Deployer calls its own
-reusable job, checks out exact component commits, and runs the same checked-in
-build scripts used by each component workflow. Never put the token in source,
+private reusable-workflow sharing is not required: Deployer downloads release
+assets without checking out component source or calling component workflows.
+Gateway downloads come from tapis-project/FlexServ, not the personal fork.
+Never put the token in source,
 BUILD metadata, a Tapis environment file, or a chat message.
 
 ## Verification record

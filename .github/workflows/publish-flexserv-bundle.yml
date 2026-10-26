@@ -1,86 +1,41 @@
-name: Publish Tapis FlexServ Alpha Bundle
+name: Assemble Tapis FlexServ from Component Releases
 on:
   push:
+    branches: [feature/1.5.0-alpha]
     tags: ['tapis-flexserv-*']
   workflow_dispatch:
     inputs:
-      gateway_ref:
-        description: Gateway source branch or immutable commit
-        default: feature/1.5.0-alpha
+      gateway_tag:
+        description: Gateway release tag (empty selects latest on feature/1.5.0)
         type: string
-      fcs_ref:
-        description: v0.13 FCS source branch or immutable commit
-        default: feature/new_fcs
+      fcs_tag:
+        description: FCS release tag (empty selects latest on feature/new_fcs)
         type: string
-      pack_ref:
-        description: Unified Pack branch or immutable commit
-        default: flexserv/new_fcs
+      pack_tag:
+        description: Pack release tag (empty selects latest on feature/new_fcs)
         type: string
       publish_release:
-        default: true
+        default: false
         type: boolean
       tag:
-        description: Existing tag at this Deployer commit (required when publishing)
+        description: Existing Deployer tag at this commit, required for publication
         type: string
 permissions:
   contents: read
 jobs:
-  resolve:
+  validate:
     runs-on: ubuntu-24.04
-    outputs:
-      gateway: ${{ steps.resolve.outputs.gateway }}
-      fcs: ${{ steps.resolve.outputs.fcs }}
-      pack: ${{ steps.resolve.outputs.pack }}
     steps:
-      - name: Validate existing release tag
-        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check packaging and release fixtures
         run: |
-          test -n "$RELEASE_TAG" || { echo 'Create and push a release tag at this Deployer commit before publishing.' >&2; exit 1; }
-          actual=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
-          test "$actual" = "$GITHUB_SHA" || { echo 'Release tag does not identify this Deployer commit.' >&2; exit 1; }
-      - id: resolve
-        env:
-          GH_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
-          SOURCE_READ_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN }}
-          GATEWAY_REF: ${{ inputs.gateway_ref || 'feature/1.5.0-alpha' }}
-          FCS_REF: ${{ inputs.fcs_ref || 'feature/new_fcs' }}
-          PACK_REF: ${{ inputs.pack_ref || 'flexserv/new_fcs' }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json,os,subprocess,urllib.parse
-          if not os.environ.get('SOURCE_READ_TOKEN'):
-              raise SystemExit('Configure FLEXSERV_SOURCE_TOKEN (or existing FCS_ARTIFACT_READ_TOKEN) with read access to all three private source repositories before publishing')
-          repos={'gateway':('zhangwei217245/FlexServ','GATEWAY_REF'),'fcs':('tapis-project/FlexServ-FCS','FCS_REF'),'pack':('tapis-project/FlexServ-FCS-Pack','PACK_REF')}
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
-              for key,(repo,var) in repos.items():
-                  ref=urllib.parse.quote(os.environ[var],safe='')
-                  result=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/commits/{ref}']))
-                  sha=result['sha']
-                  if len(sha)!=40 or any(c not in '0123456789abcdef' for c in sha): raise SystemExit('Invalid source revision')
-                  output.write(f'{key}={sha}\n')
-          PY
-  gateway:
-    needs: resolve
-    uses: ./.github/workflows/build-component.yml
-    secrets: inherit
-    with:
-      repository: zhangwei217245/FlexServ
-      component: flexserv-gateway
-      source-ref: ${{ needs.resolve.outputs.gateway }}
-  fcs:
-    needs: resolve
-    uses: ./.github/workflows/build-component.yml
-    secrets: inherit
-    with:
-      repository: tapis-project/FlexServ-FCS
-      component: flexserv-capability-server
-      source-ref: ${{ needs.resolve.outputs.fcs }}
+          for file in hpc_archive/app/*.sh hpc_archive/scripts/*.sh hpc_archive/scripts/site/*.sh scripts/update-alpha-channel.sh; do bash -n "$file"; done
+          python3 -m unittest discover -s tests/release
   bundle:
-    needs: [resolve, gateway, fcs]
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -89,36 +44,49 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
-          repository: tapis-project/FlexServ-FCS-Pack
-          token: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
-          ref: ${{ needs.resolve.outputs.pack }}
-          path: selected-pack
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: '*-linux-*'
-          path: dist/binaries
-          merge-multiple: true
-      - name: Package exact Pack and verify source identity
+      - name: Validate final release tag
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         env:
-          GATEWAY_SHA: ${{ needs.resolve.outputs.gateway }}
-          FCS_SHA: ${{ needs.resolve.outputs.fcs }}
-          PACK_SHA: ${{ needs.resolve.outputs.pack }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
-          python3 selected-pack/scripts/package_pack.py selected-pack/pack dist/flexserv-capability-pack.zip
-          python3 scripts/record_bundle_sources.py --binaries dist/binaries --output dist/revisions.json
-      - name: Test scripts and package complete Tapis ZIP
+          test -n "$RELEASE_TAG" || { echo 'Create an existing tag at this Deployer commit before publication.' >&2; exit 1; }
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          test "$actual" = "$GITHUB_SHA" || { echo 'Release tag does not identify this Deployer commit.' >&2; exit 1; }
+      - name: Resolve and download published component assets
+        env:
+          GH_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
+          GATEWAY_TAG: ${{ inputs.gateway_tag }}
+          FCS_TAG: ${{ inputs.fcs_tag }}
+          PACK_TAG: ${{ inputs.pack_tag }}
         run: |
-          for file in hpc_archive/app/*.sh hpc_archive/scripts/*.sh hpc_archive/scripts/site/*.sh; do bash -n "$file"; done
-          python3 -m unittest discover -s tests/release
+          python3 scripts/download_component_releases.py --gateway-tag "$GATEWAY_TAG" --fcs-tag "$FCS_TAG" --pack-tag "$PACK_TAG" --output downloaded
+          python3 scripts/prepare_release_inputs.py --downloads downloaded --output dist
+      - name: Validate standalone and merged Packs using the released FCS
+        run: |
+          chmod u+x dist/binaries/flexserv-capability-server-amd64.bin
+          for name in tapis-workflow-pack vllm-pack; do
+            mkdir -p "pack-check/$name"
+            unzip -q "downloaded/pack/$name.zip" -d "pack-check/$name"
+            dist/binaries/flexserv-capability-server-amd64.bin --pack "pack-check/$name" --check-pack --allow-unsigned-demo > "dist/$name-check.json"
+          done
+          mkdir -p pack-check/merged
+          unzip -q dist/flexserv-capability-pack.zip -d pack-check/merged
+          dist/binaries/flexserv-capability-server-amd64.bin --pack pack-check/merged --check-pack --allow-unsigned-demo > dist/merged-pack-check.json
+          rm -rf pack-check
+      - name: Assemble complete Tapis ZIP without compiling components
+        run: |
           python3 scripts/assemble_bundle.py --source hpc_archive --binaries dist/binaries --pack dist/flexserv-capability-pack.zip --revisions dist/revisions.json --output dist/Tapis-FlexServ.zip
           unzip -t dist/Tapis-FlexServ.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Tapis-FlexServ
-          path: dist/Tapis-FlexServ.zip*
+          path: |
+            dist/Tapis-FlexServ.zip*
+            dist/*-check.json
           if-no-files-found: error
       - if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         env:

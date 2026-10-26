@@ -6,6 +6,10 @@ simple Slurm scripts. Start at [Alpha deployment](docs/ALPHA_DEPLOYMENT.md) or
 [interactive Slurm](interactive-slurm/README.md). The existing Rust Tapis client
 library below is separate from the job launcher.
 
+[Independent component releases](docs/COMPONENT_RELEASES.md) describes the current
+publication flow: Deployer downloads Gateway/FCS binaries and the two published
+Packs from tapis-project repositories and assembles the ZIP without recompiling.
+
 ## FlexServ Deployer
 
 For the minimal current Gateway + v0.13 FCS launch inside an interactive Slurm

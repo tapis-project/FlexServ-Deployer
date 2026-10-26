@@ -25,7 +25,9 @@ def assemble(source, binaries, pack, output, revisions):
     metadata=dict(schema_version=1,components=revisions,platforms={
         'amd64':{'platform':'linux-x86_64','target':'x86_64-unknown-linux-gnu','glibc_min':'2.28'},
         'arm64':{'platform':'linux-aarch64','target':'aarch64-unknown-linux-gnu','glibc_min':'2.28'}},
-        rust_toolchain='1.99.1',pack_sha256=hashlib.sha256(pack.read_bytes()).hexdigest())
+        rust_toolchains={name: detail.get('toolchains', {}) for name, detail in revisions.items()
+                         if name in ('gateway', 'fcs')},
+        pack_sha256=hashlib.sha256(pack.read_bytes()).hexdigest())
     files['BUILD.json']=(json.dumps(metadata,indent=2)+'\n').encode()
     files['checksums.sha256']=''.join(f'{hashlib.sha256(data).hexdigest()}  {name}\n' for name,data in sorted(files.items())).encode()
     output.parent.mkdir(parents=True,exist_ok=True)

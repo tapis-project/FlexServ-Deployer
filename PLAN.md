@@ -70,3 +70,13 @@ Native Gateway279/FCS267 tests pass per Linux architecture, packaging16 and
 HTTP/HTTPS real-host fixtures7 each pass. Both public modes retain internal mTLS
 and reject no-client-certificate connections. The TACC App definition points to
 the verified release; registration and real Slurm/TAP checks remain unexecuted.
+# Release-only assembly (2026-10-26)
+
+- [x] Preserve current work on feature/1.5.0-alpha. Remove Deployer Rust build jobs
+  and download published Gateway/FCS/Pack assets from tapis-project repositories.
+- [x] Resolve explicit release tags or latest successful releases on the approved
+  branches once, pin release IDs, check inventories/digests and reject bad assets.
+- [x] Merge the two verified Packs into the existing runtime catalog, recording
+  component tags, commits and asset hashes in BUILD.json; preserve stable Alpha URL.
+- [ ] Run packaging, download-integrity, script and workflow checks. Record actual
+  Actions execution separately; do not claim a native build from local fixtures.
