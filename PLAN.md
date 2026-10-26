@@ -81,10 +81,16 @@ the verified release; registration and real Slurm/TAP checks remain unexecuted.
 - [x] Run packaging, download-integrity, script and workflow checks. Record actual
   Actions execution separately; do not claim a native build from local fixtures.
 
-- [ ] Verify live component releases and final release-only ZIP assembly, including
+- [x] Verify live component releases and final release-only ZIP assembly, including
   fixed Alpha 44 asset refresh and downloaded checksums.
 
 Publication refinement: keep the existing Alpha 44 tag/release only. Automatic
 review rejected an unnecessary extra Deployer Alpha tag; none was created. Use
 verified branch assemblies plus run-specific Actions artifacts instead. Component
 repository release tags remain independent and immutable to their publishers.
+
+Live proof: Gateway 40352353290, FCS 40352353080, Pack 40352358386 and Deployer
+40359644218 all succeed. Downloaded fixed Alpha 44 has SHA-256
+04fe8bf6a45524f4c6a944dda57c359a0bbb2f8749babfcf22dc8ecfe023b945; 19 files,
+four verified ELF binaries and the 65-tool runtime Pack. Original Alpha 44 tag
+remains 2cdd56a01b4adb3bfd559e810a0a5d22d50c31ad. No new Deployer tag exists.

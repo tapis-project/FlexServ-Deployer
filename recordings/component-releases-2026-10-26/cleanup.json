@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-26",
+  "owned_temporary_root": "/private/tmp/flexserv-component-release-20261026",
+  "removed_files": 261,
+  "removed_bytes": 78160217,
+  "new_module_bytecode_removed": [],
+  "preserved": [
+    "User NewReleaseSpec.md",
+    "User tests/probes/",
+    "Historical FCS build targets",
+    "Existing unrelated /tmp artifacts",
+    "Published component assets and verification JSON"
+  ],
+  "not_created": [
+    "Local native build cache",
+    "VMs",
+    "Long-lived deployment services",
+    "External Tapis resources"
+  ]
+}

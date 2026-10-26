@@ -1,0 +1,164 @@
+{
+  "archive_sha256": "04fe8bf6a45524f4c6a944dda57c359a0bbb2f8749babfcf22dc8ecfe023b945",
+  "bytes": 76494388,
+  "files": 19,
+  "binaries": [
+    "bin/flexserv-capability-server-amd64.bin",
+    "bin/flexserv-capability-server-arm64.bin",
+    "bin/flexserv-gateway-amd64.bin",
+    "bin/flexserv-gateway-arm64.bin"
+  ],
+  "merged_toolsets": 18,
+  "merged_tools": 65,
+  "components": {
+    "gateway": {
+      "repository": "tapis-project/FlexServ",
+      "branch": "feature/1.5.0",
+      "tag": "gateway-1.5.0-alpha-1",
+      "commit": "244cde38fb85140cfafa95ebd703efdfd8c19148",
+      "release_id": 424482960,
+      "assets": {
+        "flexserv-gateway-amd64.bin": "99e19a9132217741f5f20c24b5014b67676bd9ba468eeca0a37a63722cb9a576",
+        "flexserv-gateway-amd64.bin.sha256": "ab69c607dffd60dd6034cbaec3fe571b3431c689723d2a078f064f0244a6e980",
+        "flexserv-gateway-arm64.bin": "5509eb2af9e89c253f15b2be2279f5854907129e1953f7852768dfbeed38e5ca",
+        "flexserv-gateway-arm64.bin.sha256": "80d753e92f7169fd1faa5505dbc4ad69eb3374906b0c0743b5e93e95f602a5f1",
+        "flexserv-gateway-linux-aarch64-abi.json": "5254aa2c336fff64a00c10b959d68c6e674cb2fd0aa59cd8dafed1aa46d8cf6e",
+        "flexserv-gateway-linux-aarch64-rust.txt": "55cd0529c005d3f62869ea6e2271bfa9d5196f56dc65a8be00a371af114a4a98",
+        "flexserv-gateway-linux-aarch64-smoke.txt": "b2ef28975a91aef18c3f32db3c35b9d90a8751e3a7b28792f9798c0aae6d819c",
+        "flexserv-gateway-linux-aarch64-source.txt": "308e8bb465a512a0bbd1f936c751560fc6312e86759461eda83a55c7a4902804",
+        "flexserv-gateway-linux-aarch64-version.txt": "b2ef28975a91aef18c3f32db3c35b9d90a8751e3a7b28792f9798c0aae6d819c",
+        "flexserv-gateway-linux-x86_64-abi.json": "92c51e53ac2bda9e55b6084d81f8cb63e42d03b38710d3da18a766e145d57e84",
+        "flexserv-gateway-linux-x86_64-rust.txt": "55cd0529c005d3f62869ea6e2271bfa9d5196f56dc65a8be00a371af114a4a98",
+        "flexserv-gateway-linux-x86_64-smoke.txt": "b2ef28975a91aef18c3f32db3c35b9d90a8751e3a7b28792f9798c0aae6d819c",
+        "flexserv-gateway-linux-x86_64-source.txt": "308e8bb465a512a0bbd1f936c751560fc6312e86759461eda83a55c7a4902804",
+        "flexserv-gateway-linux-x86_64-version.txt": "b2ef28975a91aef18c3f32db3c35b9d90a8751e3a7b28792f9798c0aae6d819c",
+        "release-assets.sha256": "4bc9c3320b0de338bfac9e9a13621620c36d813ef58e7d1596c69c09f0de96bf"
+      },
+      "version": "flexserv-gateway 1.5.0",
+      "abi": {
+        "linux-x86_64": {
+          "architecture": "amd64",
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "glibc_max": "2.28",
+          "libraries": [
+            "libgcc_s.so.1",
+            "libpthread.so.0",
+            "libm.so.6",
+            "libdl.so.2",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "sha256": "99e19a9132217741f5f20c24b5014b67676bd9ba468eeca0a37a63722cb9a576"
+        },
+        "linux-aarch64": {
+          "architecture": "arm64",
+          "interpreter": "/lib/ld-linux-aarch64.so.1",
+          "glibc_max": "2.28",
+          "libraries": [
+            "libgcc_s.so.1",
+            "libpthread.so.0",
+            "libm.so.6",
+            "libdl.so.2",
+            "libc.so.6"
+          ],
+          "sha256": "5509eb2af9e89c253f15b2be2279f5854907129e1953f7852768dfbeed38e5ca"
+        }
+      },
+      "toolchains": {
+        "linux-x86_64": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+        "linux-aarch64": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      }
+    },
+    "fcs": {
+      "repository": "tapis-project/FlexServ-FCS",
+      "branch": "feature/new_fcs",
+      "tag": "fcs-1.5.0-alpha-1",
+      "commit": "8d6c50c8ace2e946846d94194ae81c11df7ea8b4",
+      "release_id": 424477143,
+      "assets": {
+        "flexserv-capability-server-amd64.bin": "5049f641a91ef4cc5522e6208c5184b7c6d5db6f372542213af9b4f01e180a45",
+        "flexserv-capability-server-amd64.bin.sha256": "a30935d50755e0de8568051f585320c378077093277f3020bf60a64012f676a2",
+        "flexserv-capability-server-arm64.bin": "f2276c6589751bef96b37dfb2ede4d7de4f2cc90e6796e7e2605840a05c68636",
+        "flexserv-capability-server-arm64.bin.sha256": "349a0e5945d083e7c06c66ec5e5235aba325ce4a5800056aa3330003c369a71c",
+        "flexserv-capability-server-linux-aarch64-abi.json": "9eeb0400396f35f5a12191a3229b721e6180aac9876db0d24913b00d4859e021",
+        "flexserv-capability-server-linux-aarch64-rust.txt": "55cd0529c005d3f62869ea6e2271bfa9d5196f56dc65a8be00a371af114a4a98",
+        "flexserv-capability-server-linux-aarch64-smoke.json": "360d0fd0816fdba747de35d8f3eed27e12db10567810614da2a4b8aa0616cde6",
+        "flexserv-capability-server-linux-aarch64-source.txt": "1067156b56cbd5e95c68aa59ea2823d89a865eb22b753603babfc4a321b4197d",
+        "flexserv-capability-server-linux-aarch64-version.txt": "19dbea0bf6f1f9ebfc0cdfe9c16cdbfbc0b0c8cd63db7fd8111800a0396c1809",
+        "flexserv-capability-server-linux-x86_64-abi.json": "845b574825d72c43edad3927183b831edc7fda47e9df5c10d9936d816e4dea4e",
+        "flexserv-capability-server-linux-x86_64-rust.txt": "55cd0529c005d3f62869ea6e2271bfa9d5196f56dc65a8be00a371af114a4a98",
+        "flexserv-capability-server-linux-x86_64-smoke.json": "360d0fd0816fdba747de35d8f3eed27e12db10567810614da2a4b8aa0616cde6",
+        "flexserv-capability-server-linux-x86_64-source.txt": "1067156b56cbd5e95c68aa59ea2823d89a865eb22b753603babfc4a321b4197d",
+        "flexserv-capability-server-linux-x86_64-version.txt": "19dbea0bf6f1f9ebfc0cdfe9c16cdbfbc0b0c8cd63db7fd8111800a0396c1809",
+        "release-assets.sha256": "eb783d285fd100696eb4db28b5db40a7381eb8ad8d1f59f495e11731307fbdc4"
+      },
+      "version": "flexserv-capability-server 0.13.0",
+      "abi": {
+        "linux-x86_64": {
+          "architecture": "amd64",
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "glibc_max": "2.28",
+          "libraries": [
+            "libdl.so.2",
+            "libgcc_s.so.1",
+            "libpthread.so.0",
+            "libm.so.6",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "sha256": "5049f641a91ef4cc5522e6208c5184b7c6d5db6f372542213af9b4f01e180a45"
+        },
+        "linux-aarch64": {
+          "architecture": "arm64",
+          "interpreter": "/lib/ld-linux-aarch64.so.1",
+          "glibc_max": "2.28",
+          "libraries": [
+            "libdl.so.2",
+            "libgcc_s.so.1",
+            "librt.so.1",
+            "libpthread.so.0",
+            "libm.so.6",
+            "libc.so.6"
+          ],
+          "sha256": "f2276c6589751bef96b37dfb2ede4d7de4f2cc90e6796e7e2605840a05c68636"
+        }
+      },
+      "toolchains": {
+        "linux-x86_64": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+        "linux-aarch64": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      }
+    },
+    "pack": {
+      "repository": "tapis-project/FlexServ-FCS-Pack",
+      "branch": "feature/new_fcs",
+      "tag": "pack-v1.5.0-alpha-1",
+      "commit": "4bf258e23316fd35d872644a91e6c4d2fe366c33",
+      "release_id": 424443830,
+      "assets": {
+        "pack-source.json": "3b9bf7d4ec84519b4d80f6414b3d9e4017600f5be0487ee3260b08097d32715f",
+        "release-assets.sha256": "71a63280f3a8864a5dbc820da49b8d20e424c3ca31867187dc910b9936765714",
+        "tapis-workflow-pack.zip": "e8716300847aee359bc54f3fbe43ab6d2d8260303ba07a324b2caeea1f46a12c",
+        "tapis-workflow-pack.zip.sha256": "1a33909d42c42c9f07724c8edcb1e4f36def3fde5c879ff433abcc5611f17c5c",
+        "vllm-pack.zip": "cb9a254c1c46098d9eeb3409591ca66de7aad69eda0e5bc72ba7575765cf0db7",
+        "vllm-pack.zip.sha256": "af9964a15ac8b32e3752835c79e4a1645b85b6419556c4a1244108e315fe5985"
+      },
+      "version": "1.0.0",
+      "packs": {
+        "tapis-workflow-pack": "1.0.0",
+        "vllm-pack": "1.0.0"
+      }
+    },
+    "deployer": {
+      "repository": "tapis-project/FlexServ-Deployer",
+      "commit": "00a825bcfe4f1bf25dbf84e9f354a7c10fd5dd0e"
+    }
+  },
+  "checks": [
+    "archive checksum and CRC",
+    "every outer inventory entry",
+    "binary SHA against published assets",
+    "four ELF architectures",
+    "Bash syntax from downloaded archive",
+    "complete merged Pack checksum"
+  ]
+}

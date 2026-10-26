@@ -94,5 +94,34 @@
     "release_id": 424482960,
     "tag": "gateway-1.5.0-alpha-1",
     "assets": 15
+  },
+  "native_fcs": {
+    "run": 40352353080,
+    "result": "passed",
+    "architectures": [
+      "linux-x86_64",
+      "linux-aarch64"
+    ],
+    "release_id": 424477143,
+    "tag": "fcs-1.5.0-alpha-1",
+    "assets": 15,
+    "evidence": "Published component and success status read using existing Deployer release credential"
+  },
+  "native_pack": {
+    "run": 40352358386,
+    "result": "passed",
+    "release_id": 424443830,
+    "tag": "pack-v1.5.0-alpha-1",
+    "assets": 6
+  },
+  "assembly": {
+    "run": 40359644218,
+    "result": "passed",
+    "commit": "00a825bcfe4f1bf25dbf84e9f354a7c10fd5dd0e",
+    "compiles_components": false,
+    "archive_sha256": "04fe8bf6a45524f4c6a944dda57c359a0bbb2f8749babfcf22dc8ecfe023b945",
+    "alpha44_original_tag_commit": "2cdd56a01b4adb3bfd559e810a0a5d22d50c31ad",
+    "new_deployer_tags": false,
+    "download_verification": "passed; CRC, every checksum, four ELF architectures, component hashes, Bash syntax and 65-tool Pack"
   }
 }
