@@ -1,6 +1,6 @@
 {
   "date": "2026-10-25",
-  "status": "LOCAL_CHECKS_PASS; MATCHING_RELEASE_PENDING",
+  "status": "PUBLISHED_AND_DOWNLOAD_VERIFIED; HPC_AND_TACC_REGISTRATION_NOT_RUN",
   "shell": "Bash only for runtime orchestration; jq/core utilities; no Python glue",
   "gateway_library_tests": 279,
   "gateway_config_tests": 12,
@@ -20,5 +20,32 @@
     "Real Slurm/TACC TAP or login forwarding",
     "Real vLLM/MAX installation",
     "TACC tenant registration or job submission"
-  ]
+  ],
+  "actions": {
+    "run": "https://github.com/tapis-project/FlexServ-Deployer/actions/runs/40254076514",
+    "status": "SUCCESS",
+    "tag": "tapis-flexserv-1.5.0-alpha-44",
+    "linux_library_tests": {
+      "gateway_per_architecture": 279,
+      "fcs_per_architecture": 267
+    },
+    "bundle_tests": 16
+  },
+  "sources": {
+    "gateway": "2d1e9d64418d537098a46084ea99a4116760339e",
+    "fcs": "3007ed5e3a9d2c108c3eba943c9dee16779684ea",
+    "pack": "ba5d8e8f4e0fcf49fdcff4845018ed003a15670b",
+    "deployer": "2cdd56a01b4adb3bfd559e810a0a5d22d50c31ad"
+  },
+  "initial_attempts": [
+    "A worker test fixture omitted the new static jq asset; fixed the fixture and passed all 16 tests.",
+    "Bytecode compilation hit the macOS external cache sandbox; fixture source was then executed successfully with the isolated Python 3.13 test runtime."
+  ],
+  "release": {
+    "url": "https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-44",
+    "sha256": "fe6eb83763e8d87f1b3329b7f5299e4312eb40abdf9393996518a55bdecaad83",
+    "bytes": 76496465,
+    "files": 19,
+    "app_image_matches": true
+  }
 }

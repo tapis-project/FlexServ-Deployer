@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "removed_task_root": "/private/tmp/flexserv-bash-launch-20261025",
+  "entries": 3818,
+  "apparent_bytes": 159280317,
+  "preserved": [
+    "Existing Gateway/FCS build caches and new tested binaries",
+    "Original fcs-v013-latest-python environment",
+    "NewReleaseSpec.md and tests/probes user files",
+    "Published release and finite verification records"
+  ],
+  "processes": "Both runtime scenarios assert owned parents reaped and listeners closed; their temporary homes and job directories were removed",
+  "vms_created": false
+}

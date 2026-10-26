@@ -9,10 +9,10 @@ This directory creates no Tapis resources automatically. With a token issued for
 the TACC tenant, register the definition from this directory:
 
 ```bash
-curl --fail-with-body -sS -X POST https://tacc.tapis.io/v3/apps \
+curl --fail -sS -X POST https://tacc.tapis.io/v3/apps \
   -H "X-Tapis-Token: $TAPIS_TOKEN" -H 'Content-Type: application/json' \
   --data-binary @app.json
-curl --fail-with-body -sS \
+curl --fail -sS \
   -H "X-Tapis-Token: $TAPIS_TOKEN" \
   https://tacc.tapis.io/v3/apps/FlexServ-1.5.0/1.5.0
 ```

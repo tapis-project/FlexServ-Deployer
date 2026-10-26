@@ -144,8 +144,8 @@ BUILD metadata, a Tapis environment file, or a chat message.
 
 See [Alpha verification](../recordings/alpha-2026-10-25/verification.json).
 Local macOS fixtures and native Linux Actions builds are complete.
-[Alpha 43](https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-43)
-is published; its downloaded archive, all 16 files, ELF identities, Pack checksums
+[Alpha 44](https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-44)
+is published; its downloaded archive, all 19 files, ELF identities, Pack checksums
 and source metadata pass verification. Earlier failed attempts are retained in
 the verification record. Real site access and physical hardware remain separate,
 unexecuted acceptance gates.

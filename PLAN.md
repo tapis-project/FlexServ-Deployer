@@ -2,15 +2,15 @@
 
 ## Bash launcher correction (approved 2026-10-25)
 
-- [ ] Replace runtime shell/Python glue with Bash, jq and Linux utilities. Prove
+- [x] Replace runtime shell/Python glue with Bash, jq and Linux utilities. Prove
   with syntax checks, a no-Python shell guard, checksum/Pack and launch fixtures.
-- [ ] Parse `--enable-https` and `--trust-remote-code`; keep PRI_MODEL_REPO and
+- [x] Parse `--enable-https` and `--trust-remote-code`; keep PRI_MODEL_REPO and
   PUB_MODEL_REPO as environment inputs. The latter flag only exports a variable.
-- [ ] Default to public HTTP, use TAP certificates only for explicit HTTPS, and
+- [x] Default to public HTTP, use TAP certificates only for explicit HTTPS, and
   support secure random tokens and local login-port selection without TAP.
-- [ ] Add an explicit Gateway plaintext opt-in and focused configuration tests;
+- [x] Add an explicit Gateway plaintext opt-in and focused configuration tests;
   keep internal job mTLS independent. Do not change FCS remote-code execution.
-- [ ] Generate the TACC FlexServ-1.5.0 / 1.5.0 App and registration instructions,
+- [x] Generate the TACC FlexServ-1.5.0 / 1.5.0 App and registration instructions,
   validate definitions, publish a matching bundle and record actual checks.
 
 Lessons: when deployment logic belongs in a shell entrypoint, use Bash and
@@ -51,3 +51,11 @@ Downloaded ZIP SHA-256: 50ff5ed683837fefbbe7b4bd48b640c81e9661608a1f70f80467dc75
 All 16 archive files, four ELF identities, Pack inventory and source commits verify.
 Real Slurm/TACC/OSC, GPU/RDMA/JIT and vLLM/MAX installation remain unexecuted;
 strict Clippy baseline diagnostics are recorded rather than claimed as passing.
+
+## Bash correction completed
+
+Alpha 44 is published; run 40254076514 and downloaded archive verification pass.
+Native Gateway279/FCS267 tests pass per Linux architecture, packaging16 and
+HTTP/HTTPS real-host fixtures7 each pass. Both public modes retain internal mTLS
+and reject no-client-certificate connections. The TACC App definition points to
+the verified release; registration and real Slurm/TAP checks remain unexecuted.

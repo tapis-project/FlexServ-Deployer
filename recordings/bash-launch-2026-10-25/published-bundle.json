@@ -1,0 +1,144 @@
+{
+  "status": "PASS",
+  "tag": "tapis-flexserv-1.5.0-alpha-44",
+  "archive_sha256": "fe6eb83763e8d87f1b3329b7f5299e4312eb40abdf9393996518a55bdecaad83",
+  "archive_bytes": 76496465,
+  "files": [
+    "BUILD.json",
+    "app/run_flexserv.sh",
+    "bin/flexserv-capability-server-amd64.bin",
+    "bin/flexserv-capability-server-arm64.bin",
+    "bin/flexserv-gateway-amd64.bin",
+    "bin/flexserv-gateway-arm64.bin",
+    "checksums.sha256",
+    "pack/flexserv-capability-pack.zip",
+    "scripts/common.sh",
+    "scripts/flexserv.env",
+    "scripts/host-request.jq",
+    "scripts/install.sh",
+    "scripts/job-launch.jq",
+    "scripts/launch-flexserv.sh",
+    "scripts/site/osc.sh",
+    "scripts/site/tacc.sh",
+    "scripts/site/template.sh",
+    "scripts/tunnel.sh",
+    "tapisjob.manifest"
+  ],
+  "binaries": {
+    "bin/flexserv-gateway-amd64.bin": {
+      "sha256": "6b5263a018f28324b0c0df2a4b62aeb16e696db4d1eeb7d633e8cf0053230f8a",
+      "bytes": 57541080,
+      "elf_machine": 62
+    },
+    "bin/flexserv-gateway-arm64.bin": {
+      "sha256": "a413c1cb9d938e01686f71cc34aff127f3baa033677abb5ecaae595097662725",
+      "bytes": 54279120,
+      "elf_machine": 183
+    },
+    "bin/flexserv-capability-server-amd64.bin": {
+      "sha256": "30b353522281041dfc6b1830fe9881c4480b387725dc0fff14c830b81974c302",
+      "bytes": 63295112,
+      "elf_machine": 62
+    },
+    "bin/flexserv-capability-server-arm64.bin": {
+      "sha256": "1d372e2fb33aa0657cdbdc33769752351992ee25288724fdc52dc55441f9bc44",
+      "bytes": 58071080,
+      "elf_machine": 183
+    }
+  },
+  "build": {
+    "schema_version": 1,
+    "components": {
+      "gateway": {
+        "repository": "zhangwei217245/FlexServ",
+        "commit": "2d1e9d64418d537098a46084ea99a4116760339e",
+        "version": "flexserv-gateway 1.5.0",
+        "abi": {
+          "linux-x86_64": {
+            "architecture": "amd64",
+            "interpreter": "/lib64/ld-linux-x86-64.so.2",
+            "glibc_max": "2.28",
+            "libraries": [
+              "libgcc_s.so.1",
+              "libpthread.so.0",
+              "libm.so.6",
+              "libdl.so.2",
+              "libc.so.6",
+              "ld-linux-x86-64.so.2"
+            ]
+          },
+          "linux-aarch64": {
+            "architecture": "arm64",
+            "interpreter": "/lib/ld-linux-aarch64.so.1",
+            "glibc_max": "2.28",
+            "libraries": [
+              "libgcc_s.so.1",
+              "libpthread.so.0",
+              "libm.so.6",
+              "libdl.so.2",
+              "libc.so.6"
+            ]
+          }
+        }
+      },
+      "fcs": {
+        "repository": "tapis-project/FlexServ-FCS",
+        "commit": "3007ed5e3a9d2c108c3eba943c9dee16779684ea",
+        "version": "flexserv-capability-server 0.13.0",
+        "abi": {
+          "linux-x86_64": {
+            "architecture": "amd64",
+            "interpreter": "/lib64/ld-linux-x86-64.so.2",
+            "glibc_max": "2.28",
+            "libraries": [
+              "libdl.so.2",
+              "libgcc_s.so.1",
+              "libpthread.so.0",
+              "libm.so.6",
+              "libc.so.6",
+              "ld-linux-x86-64.so.2"
+            ]
+          },
+          "linux-aarch64": {
+            "architecture": "arm64",
+            "interpreter": "/lib/ld-linux-aarch64.so.1",
+            "glibc_max": "2.28",
+            "libraries": [
+              "libdl.so.2",
+              "libgcc_s.so.1",
+              "librt.so.1",
+              "libpthread.so.0",
+              "libm.so.6",
+              "libc.so.6"
+            ]
+          }
+        }
+      },
+      "pack": {
+        "repository": "tapis-project/FlexServ-FCS-Pack",
+        "commit": "ba5d8e8f4e0fcf49fdcff4845018ed003a15670b",
+        "version": "1.0.0"
+      },
+      "deployer": {
+        "repository": "tapis-project/FlexServ-Deployer",
+        "commit": "2cdd56a01b4adb3bfd559e810a0a5d22d50c31ad"
+      }
+    },
+    "platforms": {
+      "amd64": {
+        "platform": "linux-x86_64",
+        "target": "x86_64-unknown-linux-gnu",
+        "glibc_min": "2.28"
+      },
+      "arm64": {
+        "platform": "linux-aarch64",
+        "target": "aarch64-unknown-linux-gnu",
+        "glibc_min": "2.28"
+      }
+    },
+    "rust_toolchain": "1.99.1",
+    "pack_sha256": "59d424e2272942aa60fb868010e9f102688d1cf3ac84c9e3f8583eddd885b4d3"
+  },
+  "shell_no_python_glue": "PASS",
+  "app_image_matches_published_archive": true
+}
