@@ -14,9 +14,9 @@
     "dynamicExecSystem": false,
     "execSystemExecDir": "${JobWorkingDir}",
     "execSystemInputDir": "${JobWorkingDir}",
-    "execSystemOutputDir": "${JobWorkingDir}",
+    "execSystemOutputDir": "${JobWorkingDir}/output",
     "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
-    "archiveMode": "ALWAYS",
+    "archiveMode": "NEVER",
     "isMpi": false,
     "parameterSet": {
       "appArgs": [
@@ -41,10 +41,28 @@
       ],
       "schedulerOptions": [
         {
-          "name": "allocation",
-          "description": "The job must supply -A followed by a valid TACC allocation. No allocation is assumed by this application.",
-          "inputMode": "REQUIRED",
-          "arg": "-A"
+          "name": "TACC Scheduler Profile",
+          "description": "Scheduler profile for HPC clusters at TACC",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "arg": "--tapis-profile tacc-apptainer"
+        },
+        {
+          "name": "Slurm job name",
+          "description": "Set the slurm job name to be identical to the Tapis job name.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "arg": "--job-name tap_${JobName}"
+        },
+        {
+          "name": "TACC Resource Allocation",
+          "description": "Set the TACC resource allocation for the job.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "arg": "-A << allocation >>"
+        },
+        {
+          "name": "Reservation Name",
+          "description": "Set the reservation name for the job.",
+          "inputMode": "INCLUDE_ON_DEMAND",
+          "arg": "--reservation << reservation >>"
         }
       ],
       "envVariables": [
@@ -79,14 +97,25 @@
           "inputMode": "INCLUDE_BY_DEFAULT"
         }
       ],
-      "archiveFilter": {"includeLaunchFiles": true},
-      "logConfig": {"stdoutFilename": "flexserv.out", "stderrFilename": "flexserv.err"}
+      "archiveFilter": {
+        "includeLaunchFiles": true
+      },
+      "logConfig": {
+        "stdoutFilename": "",
+        "stderrFilename": ""
+      }
     },
     "nodeCount": 1,
-    "coresPerNode": 2,
-    "memoryMB": 8192,
-    "maxMinutes": 30
+    "coresPerNode": 16,
+    "memoryMB": 256000,
+    "maxMinutes": 60
   },
-  "tags": ["appName: FlexServ-1.5.0"],
-  "notes": {"label": "FlexServ-1.5.0", "category": "Utilities", "internalTransport": "job-scoped-mTLS"}
+  "tags": [
+    "appName: FlexServ-1.5.0"
+  ],
+  "notes": {
+    "label": "FlexServ-1.5.0",
+    "category": "Utilities",
+    "internalTransport": "job-scoped-mTLS"
+  }
 }

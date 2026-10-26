@@ -205,9 +205,9 @@
             }
         },
         "nodeCount": 1,
-        "coresPerNode": 1,
+        "coresPerNode": 16,
         "memoryMB": 256000,
-        "maxMinutes": 10
+        "maxMinutes": 120
     },
     "tags": [
         "appName: FlexServ"
