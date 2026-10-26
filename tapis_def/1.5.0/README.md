@@ -2,8 +2,16 @@
 
 `app.json` defines application **ID** `FlexServ-1.5.0`, version `1.5.0`.
 Tapis represents the application name using `id`; there is no additional top-level
-`name` field. The definition uses ZIP/BATCH with native executables and a pinned
-Alpha 44 bundle, without Apptainer or an embedded inference engine.
+`name` field. The definition uses ZIP/BATCH with native executables and the fixed
+Alpha 44 download URL, without Apptainer or an embedded inference engine.
+
+Until the Beta transition, this URL is a rolling Alpha channel. Subsequent
+verified Alpha builds refresh its ZIP and checksum without editing this App.
+Each build also retains its separate release; BUILD.json and the checksum identify
+the bytes and source commits. The alpha-44 Git tag stays at its original commit.
+Beta releases never replace the Alpha assets; a published 1.5.0 Beta freezes
+further automatic Alpha promotion. GitHub replaces the two assets separately;
+retry a download if a checksum mismatch occurs during an update.
 
 This directory creates no Tapis resources automatically. With a token issued for
 the TACC tenant, register the definition from this directory:
@@ -36,8 +44,17 @@ bash prepare-job.sh > job.json
 The generated request defaults to `--control-plane-only`, so this first check does
 not install vLLM/MAX or download models. Set `TAPIS_CONTROL_PLANE_ONLY=0` to prepare
 backend environments. The application itself has no forced control-plane-only
-argument. Override `PRI_MODEL_REPO` and `PUB_MODEL_REPO` before generating the job
+argument. This mode also skips the local vLLM host-policy generation, so use normal
+startup when ready to invoke local deployment tools. Normal startup prepares the
+environment but still does not download a model or launch vLLM automatically.
+Override `PRI_MODEL_REPO` and `PUB_MODEL_REPO` before generating the job
 when the App defaults do not match your filesystem.
+
+`FLEXSERV_RUNTIME_ROOT` defaults to `HOST_EVAL($SCRATCH)/flexserv` for persistent
+state/checkpoints reusable across jobs. Export it before `prepare-job.sh` to
+override that location. It is separate from per-job `runtime/<run-id>` and
+`FLEXSERV_VENV_ROOT`. This declares a future state location; existing storage and
+tool resource permissions are not automatically migrated or expanded.
 
 Submit or inspect this file manually using the TACC Jobs API. Set
 `TAPIS_ENABLE_HTTPS=1` to include `--enable-https`. Without that argument the

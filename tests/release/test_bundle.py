@@ -185,16 +185,20 @@ class Bundle(unittest.TestCase):
         app=json.loads((ROOT/'tapis_def/1.5.0/app.json').read_text())
         self.assertEqual((app['id'],app['version']),('FlexServ-1.5.0','1.5.0'))
         self.assertEqual((app['runtime'],app['jobType']),('ZIP','BATCH'))
+        self.assertEqual(app['containerImage'],'https://github.com/tapis-project/FlexServ-Deployer/releases/download/tapis-flexserv-1.5.0-alpha-44/Tapis-FlexServ.zip')
         self.assertNotIn('runtimeOptions',app);self.assertNotIn('name',app)
         parameters=app['jobAttributes']['parameterSet']
+        variables={v['key']:v['value'] for v in parameters['envVariables']}
+        self.assertEqual(variables['FLEXSERV_RUNTIME_ROOT'],'HOST_EVAL($SCRATCH)/flexserv')
         self.assertEqual({v['key'] for v in parameters['envVariables']} & {'PRI_MODEL_REPO','PUB_MODEL_REPO'}, {'PRI_MODEL_REPO','PUB_MODEL_REPO'})
         self.assertEqual({v['arg'] for v in parameters['appArgs']},{'--enable-https','--trust-remote-code','--control-plane-only'})
         result=subprocess.check_output(['bash',str(ROOT/'tapis_def/1.5.0/prepare-job.sh')],
-            env=dict(os.environ,TAPIS_EXEC_SYSTEM_ID='fixture-system',TAPIS_LOGICAL_QUEUE='fixture',TAPIS_ALLOCATION='fixture123'),text=True)
+            env=dict(os.environ,TAPIS_EXEC_SYSTEM_ID='fixture-system',TAPIS_LOGICAL_QUEUE='fixture',TAPIS_ALLOCATION='fixture123',FLEXSERV_RUNTIME_ROOT='/scratch/fixture state'),text=True)
         job=json.loads(result);self.assertEqual(job['appId'],app['id']);self.assertEqual(job['appVersion'],app['version'])
         flags={arg['name']:arg['include'] for arg in job['parameterSet']['appArgs']}
         self.assertEqual(flags,dict(enableHttps=False,trustRemoteCode=False,controlPlaneOnly=True))
         self.assertEqual(job['parameterSet']['schedulerOptions'][0]['arg'],'-A fixture123')
+        self.assertEqual({v['key']:v['value'] for v in job['parameterSet']['envVariables']}['FLEXSERV_RUNTIME_ROOT'],'/scratch/fixture state')
 
     def test_worker_json_preserves_paths_and_does_not_enable_remote_code(self):
         with tempfile.TemporaryDirectory() as temporary:

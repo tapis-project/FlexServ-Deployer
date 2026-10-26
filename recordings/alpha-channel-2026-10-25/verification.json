@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-25",
+  "scope": "Fixed Alpha App download channel and persistent runtime-root declaration",
+  "environment": "Local macOS; Bash orchestration and fixture GitHub CLI",
+  "checks": {
+    "release_unit_tests": {"passed": 17, "command": "python3 -m unittest discover -s tests/release"},
+    "channel_fixture_cases": ["verified promotion", "Beta candidate skipped", "published Beta freezes Alpha", "immutable target rejected", "candidate digest mismatch rejected", "initial channel skipped", "already-current assets skipped"],
+    "actionlint": "passed for publication and component workflows",
+    "bash_syntax": "passed for update-alpha-channel.sh and prepare-job.sh",
+    "diff_whitespace": "passed",
+    "app_contract": "Fixed alpha-44 URL and HOST_EVAL($SCRATCH)/flexserv runtime root asserted",
+    "job_override": "Runtime root override round-trips, including spaces"
+  },
+  "unchanged": ["Public HTTP/HTTPS behavior", "Internal job-scoped mutual TLS", "Existing published Alpha 44 assets", "Rust binaries"],
+  "not_executed": ["Live cross-release Alpha channel promotion", "New GitHub Actions build or release", "Real Slurm/TACC deployment", "External Tapis App registration or job submission"],
+  "notes": "The fixed URL is a mutable Alpha channel, while separate candidate releases and BUILD.json retain source identity. GitHub replaces ZIP and checksum assets separately; readers must verify checksums and retry during an update. A published Beta freezes automatic Alpha promotion. FLEXSERV_RUNTIME_ROOT declares a shared state location without migrating storage or expanding tool permissions."
+}

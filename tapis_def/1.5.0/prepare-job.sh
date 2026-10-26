@@ -12,6 +12,7 @@ done
 jq -n --arg name "${TAPIS_JOB_NAME:-flexserv-1.5.0-check}" \
     --arg system "$TAPIS_EXEC_SYSTEM_ID" --arg queue "$TAPIS_LOGICAL_QUEUE" --arg allocation "$TAPIS_ALLOCATION" \
     --arg private "${PRI_MODEL_REPO:-}" --arg public "${PUB_MODEL_REPO:-}" \
+    --arg runtime "${FLEXSERV_RUNTIME_ROOT:-}" \
     --argjson https "${TAPIS_ENABLE_HTTPS:-0}" --argjson trust "${TAPIS_TRUST_REMOTE_CODE:-0}" \
     --argjson control "${TAPIS_CONTROL_PLANE_ONLY:-1}" \
     '{name:$name,appId:"FlexServ-1.5.0",appVersion:"1.5.0",execSystemId:$system,
@@ -20,4 +21,5 @@ jq -n --arg name "${TAPIS_JOB_NAME:-flexserv-1.5.0-check}" \
           {name:"trustRemoteCode",arg:"--trust-remote-code",include:($trust==1)},
           {name:"controlPlaneOnly",arg:"--control-plane-only",include:($control==1)}]),
         schedulerOptions:[{name:"allocation",arg:("-A "+$allocation)}],
-        envVariables:([{key:"PRI_MODEL_REPO",value:$private},{key:"PUB_MODEL_REPO",value:$public}]|map(select(.value!="")))}}'
+        envVariables:([{key:"PRI_MODEL_REPO",value:$private},{key:"PUB_MODEL_REPO",value:$public},
+          {key:"FLEXSERV_RUNTIME_ROOT",value:$runtime}]|map(select(.value!="")))}}'

@@ -49,6 +49,12 @@
       ],
       "envVariables": [
         {
+          "key": "FLEXSERV_RUNTIME_ROOT",
+          "value": "HOST_EVAL($SCRATCH)/flexserv",
+          "description": "Persistent FlexServ state and checkpoints shared across jobs. Separate from per-job runtime files and Python environments.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        },
+        {
           "key": "PRI_MODEL_REPO",
           "value": "HOST_EVAL($SCRATCH)/flexserv/models",
           "description": "Writable private model repository on the execution host.",

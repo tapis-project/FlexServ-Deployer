@@ -1,5 +1,16 @@
 # FlexServ 1.5 Alpha delivery
 
+## Stable Alpha App URL and persistent state (2026-10-25)
+
+- [x] Keep the App URL at alpha-44 and promote only verified Alpha archives into
+  that fixed channel. Freeze promotion when a published 1.5.0 Beta exists; never
+  move alpha-44's Git tag. Prove filtering and digest checks with CLI fixtures.
+- [x] Add FLEXSERV_RUNTIME_ROOT=HOST_EVAL($SCRATCH)/flexserv to the App, support
+  explicit job overrides, and document its separation from per-job/venv state.
+- [x] Clarify control-plane-only behavior and run unit/workflow/shell checks.
+  Evidence: recordings/alpha-channel-2026-10-25/verification.json. Live promotion
+  remains unexecuted; the existing Alpha 44 assets are unchanged by this update.
+
 ## Bash launcher correction (approved 2026-10-25)
 
 - [x] Replace runtime shell/Python glue with Bash, jq and Linux utilities. Prove
