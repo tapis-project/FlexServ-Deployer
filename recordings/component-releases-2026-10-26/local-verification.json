@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-26",
+  "scope": "Independent component release and release-only Deployer assembly",
+  "environment": "macOS local checks; GitHub Linux fixture job",
+  "unit_tests": {
+    "gateway_publisher": {
+      "tests": 1,
+      "cases": 5
+    },
+    "fcs_publisher": {
+      "tests": 1,
+      "cases": 5
+    },
+    "pack": {
+      "tests": 6
+    },
+    "deployer": {
+      "tests": 23
+    }
+  },
+  "checks": {
+    "actionlint": "all four changed workflows pass",
+    "bash_syntax": "changed publishers and existing job scripts pass",
+    "standalone_packs_with_existing_release_fcs": {
+      "tapis_tools": 58,
+      "vllm_tools": 8,
+      "merged_tools": 65
+    },
+    "review": "Read-only independent review passed; noncanonical ZIP member case added"
+  },
+  "linux_release_access": {
+    "run": 40353067098,
+    "result": "passed",
+    "component_read_token": "Existing Actions secret reads all three tapis-project release repositories",
+    "pack_release_seen": "pack-v1.5.0-alpha-1"
+  },
+  "unchanged": [
+    "Rust runtime implementation",
+    "Job-scoped mutual TLS",
+    "Public HTTP/HTTPS switch",
+    "Stable Alpha 44 App URL"
+  ],
+  "removed": [
+    "Deployer build-component.yml",
+    "Deployer record_bundle_sources.py",
+    "Obsolete Pack shell/Python packaging wrapper"
+  ],
+  "not_executed": [
+    "Real Slurm/TACC/OSC",
+    "GPU inference or online environment installation",
+    "External Tapis resources"
+  ],
+  "unrelated_test_limitation": "Broad FCS Python discovery requires httpx2, absent from system Python. Only the changed standard-library publication fixture is claimed locally; no dependency installation was needed for this change."
+}

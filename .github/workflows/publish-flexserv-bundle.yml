@@ -39,6 +39,8 @@ jobs:
         run: |
           for repo in tapis-project/FlexServ tapis-project/FlexServ-FCS tapis-project/FlexServ-FCS-Pack; do
             gh api "repos/$repo/releases?per_page=5" --jq '[.[]|{tag:.tag_name,draft,assets:(.assets|length)}]'
+            # Optional build metadata helps diagnose a component not yet published.
+            gh api "repos/$repo/actions/runs?per_page=5" --jq '[.workflow_runs[]|{id,name,ref:.head_branch,status,conclusion}]' || echo 'Build metadata unavailable; release integrity checks remain mandatory.'
           done
   bundle:
     needs: validate
