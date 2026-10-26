@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import secrets
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -26,14 +29,49 @@ import time
 
 import aiohttp
 import yaml
+import httpx2
+from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
 
 ROOT = Path(__file__).resolve().parents[2]
 FCS = ROOT.parent / 'FlexServ-FCS'
 sys.path.insert(0, str(FCS / 'python'))
 from client import connect, discover_tools
 
-TOKEN = 'alpha-script-fixture-access-0123456789abcdef'
-ADMIN = 'alpha-script-fixture-admin-0123456789abcdef'
+TOKEN = 'alpha-script-fixture-access-'+secrets.token_hex(24)
+ADMIN = 'alpha-script-fixture-admin-'+secrets.token_hex(24)
+
+
+@asynccontextmanager
+async def connect_fixture(url, context):
+    """Trust only the test public certificate; internal job mTLS uses its own CA."""
+    async with httpx2.AsyncClient(trust_env=False, verify=context or True,
+            headers={'Authorization': 'Bearer '+TOKEN}, timeout=httpx2.Timeout(40)) as http:
+        async with Client(streamable_http_client(url, http_client=http), read_timeout_seconds=40) as client:
+            yield client
+
+
+def public_tls_fixture(root, environment):
+    """Represent TAP's certificate pointer without contacting an actual TAP service."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import ipaddress
+    home=root/'home'; tap=home/'.tap'; tap.mkdir(parents=True,mode=0o700)
+    key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    name=x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME,'localhost')])
+    now=datetime.now(timezone.utc)
+    cert=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+          .serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(minutes=1))
+          .not_valid_after(now+timedelta(hours=1)).add_extension(x509.BasicConstraints(ca=True,path_length=None),True)
+          .add_extension(x509.SubjectAlternativeName([x509.DNSName('localhost'),x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]),False)
+          .sign(key,hashes.SHA256()))
+    certificate=tap/'public.pem';certificate.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    private=tap/'private.pem';private.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));private.chmod(0o600)
+    (tap/'.4242').write_text(str(certificate)+'\n')
+    functions=root/'tap_functions';functions.write_text('# Test-only TAP availability.\n:\n')
+    environment.update(HOME=str(home),TAP_FUNCTIONS=str(functions),FLEXSERV_KEYFILE=str(private))
+    return ssl.create_default_context(cafile=str(certificate))
 
 
 def digest(path):
@@ -103,10 +141,12 @@ while arguments and arguments[0].startswith('--'):
     arguments.pop(0)
 if not arguments or arguments[0]!='bash': raise SystemExit('Unexpected fixture srun command')
 env=dict(os.environ,SLURM_PROCID='0',SLURMD_NODENAME='localhost')
-pathlib.Path(env['ALPHA_SCRIPT_FCS_WITNESS']).write_text(json.dumps({{'pid':os.getpid()}}))
+pathlib.Path(env['ALPHA_SCRIPT_FCS_WITNESS']).write_text(json.dumps({{'pid':os.getpid(),
+ 'trust_remote_code':env.get('FLEXSERV_TRUST_REMOTE_CODE'),'private_repo':env.get('PRI_MODEL_REPO'),'public_repo':env.get('PUB_MODEL_REPO')}}))
 os.execvpe(arguments[0],arguments,env)
 ''')
     (binaries / 'python3').symlink_to(python)
+    executable(binaries/'getent','#!/usr/bin/env bash\necho "127.0.0.1 STREAM localhost"\n')
     return binaries
 
 
@@ -169,14 +209,19 @@ async def scenario(args):
             HOST_TYPE='fixture', SLURM_JOB_ID='4242', SLURM_JOB_NODELIST='localhost',
             SLURMD_NODENAME='localhost', SLURM_CLUSTER_NAME='fixture', SLURM_JOB_PARTITION='fixture',
             FLEXSERV_VENV_ROOT=str(root / 'unused-venvs'), MCP_PRINCIPAL='alpha-user',
-            LOCAL_PORT=str(selected_port), GATEWAY_BIND_HOST='127.0.0.1',
+            LOCAL_PORT=str(selected_port), GATEWAY_BIND_HOST='0.0.0.0',NODE_HOSTNAME_DOMAIN='127.0.0.1',
             RAND_TOKEN=TOKEN, FLEXSERV_ADMIN_SECRET=ADMIN, ALPHA_SCRIPT_FCS_WITNESS=str(witness),
             STARTUP_TIMEOUT_SECONDS='35', RUN_SECONDS='180')
+        private_repo=root/'explicit-private';public_repo=root/'explicit-public';public_repo.mkdir(mode=0o700)
+        environment.update(PRI_MODEL_REPO=str(private_repo),PUB_MODEL_REPO=str(public_repo),
+            ENABLE_HTTPS='1',FLEXSERV_TRUST_REMOTE_CODE='true',TLS_CERT='/stale/cert',TLS_KEY='/stale/key')
+        context=public_tls_fixture(root,environment) if args.https else None
+        flags=['--control-plane-only']+(['--enable-https','--trust-remote-code'] if args.https else [])
         output = root / 'entry.log'
         identities = {}
         with output.open('wb') as log:
             child = await asyncio.create_subprocess_exec('bash', str(entry_alias / 'app/run_flexserv.sh'),
-                '--control-plane-only', env=environment, cwd=bundle, stdout=log, stderr=log)
+                *flags, env=environment, cwd=bundle, stdout=log, stderr=log)
             try:
                 access = bundle / 'flexserv_access_info.txt'
                 async with asyncio.timeout(45):
@@ -195,10 +240,24 @@ async def scenario(args):
                 lines = access.read_text().splitlines()
                 assert f'FlexServ token: {TOKEN}' in lines
                 url = next(line.split(': ', 1)[1] for line in lines if line.startswith('FlexServ URL: '))
-                assert url == f'http://127.0.0.1:{selected_port}'
+                assert url == f'{"https" if args.https else "http"}://127.0.0.1:{selected_port}'
                 checks.append('actual run_flexserv entry resolves a job-directory alias before bundled install, one-node launch and template access functions')
                 checks.append('private access info and retained manifest are published only after TLS staging deletion')
-                fcs_pid = json.loads(witness.read_text())['pid']
+                witnessed=json.loads(witness.read_text());fcs_pid=witnessed['pid']
+                assert witnessed['trust_remote_code']==('true' if args.https else 'false')
+                assert witnessed['private_repo']==str(private_repo) and witnessed['public_repo']==str(public_repo)
+                checks.append('CLI flags control public TLS and metadata-only remote-code declaration; repository environment paths reach FCS unchanged')
+                assert all(member['endpoint'].startswith('https://') for member in manifest['instances'])
+                async with aiohttp.ClientSession(trust_env=False) as unauthenticated:
+                    for member in manifest['instances']:
+                        try:
+                            async with unauthenticated.get(member['endpoint']+'/healthz',ssl=False,timeout=aiohttp.ClientTimeout(total=3)) as response:
+                                await response.read()
+                        except (aiohttp.ClientError,OSError,TimeoutError):
+                            pass
+                        else:
+                            raise AssertionError('Internal FCS accepted TLS without a client certificate')
+                checks.append('internal endpoints always use HTTPS and reject connections without a job client certificate in both public modes')
                 candidates = direct_children(child.pid)
                 identities = {pid: process_identity(pid) for pid in candidates}
                 gateway_ids = [pid for pid, identity in identities.items()
@@ -209,7 +268,7 @@ async def scenario(args):
                 with zipfile.ZipFile(args.pack) as archive:
                     tools = [yaml.safe_load(archive.read(name)) for name in archive.namelist() if name.endswith('/tool.yaml')]
                 assert len(tools) == 65, len(tools)
-                async with connect(url + '/mcp', token=TOKEN) as client:
+                async with connect_fixture(url + '/mcp', context) as client:
                     names = {tool.name for tool in await discover_tools(client)}
                     assert {'io.flexserv.deployments.vllm', 'io.tapis.jobs.submit',
                             'io.tapis.workflows.provision_and_run'} <= names, names
@@ -218,13 +277,17 @@ async def scenario(args):
                     assert not result.is_error and result.structured_content['operations'] == [], result
                 checks.append('full 65-tool merged Pack loads without Tapis credentials and public MCP authenticates/discovers both namespaces')
                 async with aiohttp.ClientSession(trust_env=False) as http:
-                    async with http.get(url + '/healthz/ready') as response:
+                    async with http.get(url + '/healthz/ready',ssl=context) as response:
                         assert response.status == 200, await response.text()
+                    for headers in [{},{'Authorization':'Bearer wrong-fixture-token'}]:
+                        async with http.post(url+'/mcp',ssl=context,headers=dict(headers,Accept='application/json, text/event-stream'),
+                                json={'jsonrpc':'2.0','id':1,'method':'initialize','params':{}}) as response:
+                            assert response.status in (401,403), response.status
                 for path in [output, *list((bundle / 'logs').glob('*'))]:
                     if path.is_file():
                         text = path.read_text(errors='replace')
                         assert TOKEN not in text and ADMIN not in text, 'Credential leaked into ordinary logs'
-                checks.append('public readiness is reachable and ordinary logs contain neither access nor administrator secret')
+                checks.append('public readiness is reachable, MCP still rejects missing/wrong tokens and ordinary logs contain no credentials')
                 await stop_entry(child)
                 assert child.returncode == 143, child.returncode
                 for pid, identity in identities.items():
@@ -275,6 +338,7 @@ async def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--https', action='store_true', help='Exercise TAP public HTTPS; internal mTLS remains mandatory')
     parser.add_argument('--gateway', type=Path, required=True)
     parser.add_argument('--server', type=Path, required=True)
     parser.add_argument('--pack', type=Path, required=True)

@@ -3,7 +3,7 @@
 set -euo pipefail
 if [[ ${1:-} == --help ]]; then
     echo 'Set FLEXSERV_BUNDLE_DIR to an extracted Tapis-FlexServ.zip directory.'
-    echo 'Usage: launch.sh [--control-plane-only]'
+    echo 'Usage: launch.sh [--enable-https] [--trust-remote-code] [--control-plane-only]'
     exit 0
 fi
 root=${FLEXSERV_BUNDLE_DIR:?Set FLEXSERV_BUNDLE_DIR to the extracted Alpha bundle}

@@ -15,47 +15,57 @@ get_flexserv_venv_root() {
     esac
 }
 concrete_setup_environment() {
-    local functions=${TAP_FUNCTIONS:-/share/doc/slurm/tap_functions}
-    [[ -r "$functions" ]] || { echo "TAP functions not found: $functions" >&2; return 1; }
-    source "$functions"
-    mkdir -p "$HOME/.tap"
+    load_tap_functions
 }
 concrete_setup_random_token() {
-    RAND_TOKEN=${RAND_TOKEN:-$(tap_get_token)}
-    [[ -n "$RAND_TOKEN" ]] || { echo 'TAP did not provide an access token.' >&2; return 1; }
+    if [[ -z ${RAND_TOKEN:-} ]]; then
+        if [[ "$TAP_AVAILABLE" == 1 ]]; then RAND_TOKEN=$(tap_get_token)
+        else RAND_TOKEN=$(secure_random_hex); fi
+    fi
+    [[ -n "$RAND_TOKEN" ]] || { echo 'No access token could be generated.' >&2; return 1; }
     export RAND_TOKEN
 }
+get_login_port() {
+    # Probe once per reachable login node; actual SSH forwarding still owns the bind.
+    local node listing used=' ' reachable=0 value candidate attempt
+    for node in ${FLEXSERV_LOGIN_NODES:-login1 login2 login3 login4}; do
+        if listing=$(ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 "$node" \
+            'if command -v ss >/dev/null; then ss -H -ltn; else netstat -ltn; fi' 2>/dev/null); then
+            reachable=$((reachable+1))
+            while IFS= read -r value; do used+="${value##*:} "; done < <(awk '{print $4}' <<< "$listing")
+        fi
+    done
+    (( reachable > 0 )) || { echo 'Cannot inspect any login node; configure LOGIN_PORT or SSH access.' >&2; return 1; }
+    for ((attempt=0; attempt<32; attempt++)); do
+        value=$(od -An -N2 -tu2 /dev/urandom); candidate=$((value%40000+20000))
+        if [[ "$used" != *" $candidate "* ]]; then printf '%s\n' "$candidate"; return; fi
+    done
+    echo 'No login port candidate found.' >&2; return 1
+}
 concrete_setup_login_port() {
-    LOGIN_PORT=${LOGIN_PORT:-$(tap_get_port)}
-    [[ "$LOGIN_PORT" =~ ^[0-9]+$ ]] && (( LOGIN_PORT > 0 && LOGIN_PORT < 65536 ))
+    export TAP_PORT_ALLOCATED=0
+    if [[ -z ${LOGIN_PORT:-} ]]; then
+        if [[ "$TAP_AVAILABLE" == 1 ]]; then LOGIN_PORT=$(tap_get_port); export TAP_PORT_ALLOCATED=1
+        else LOGIN_PORT=$(get_login_port); fi
+    fi
+    valid_port "$LOGIN_PORT" || { echo 'Invalid LOGIN_PORT.' >&2; return 1; }
     export LOGIN_PORT
     FLEXSERV_LOGIN_PUBLIC_HOSTS=""
     local login host public
     for login in ${FLEXSERV_LOGIN_NODES:-login1 login2 login3 login4}; do
         host=$(ssh -G "$login" 2>/dev/null | awk '$1=="hostname" {print $2; exit}')
-        public=$(python3 -c 'import socket,sys; print(socket.getfqdn(sys.argv[1]))' "${host:-$login}")
+        public=$(getent hosts "${host:-$login}" | awk 'NF {print $2; exit}') || true
+        public=${public:-${host:-$login}}
         FLEXSERV_LOGIN_PUBLIC_HOSTS+="$public "
     done
     export FLEXSERV_LOGIN_PUBLIC_HOSTS
 }
 concrete_setup_cert_tls() {
-    if [[ "$ENABLE_HTTPS" == 1 ]]; then
-        local pointer="$HOME/.tap/.$SLURM_JOB_ID"
-        [[ -r "$pointer" ]] || { echo 'TAP certificate pointer is missing.' >&2; return 1; }
-        TLS_CERT=$(cat "$pointer"); TLS_KEY=${FLEXSERV_KEYFILE:-$TLS_CERT}
-        [[ -r "$TLS_CERT" && -r "$TLS_KEY" ]] || { echo 'TAP certificate/key unavailable.' >&2; return 1; }
-        export TLS_CERT TLS_KEY
-    fi
+    setup_public_tls
 }
 concrete_setup_reverse_tunnels() {
     local node remote_bind=${FLEXSERV_TUNNEL_BIND:-}
-    if [[ -z "$remote_bind" ]]; then
-        if [[ "$PROTOCOL" == https ]]; then remote_bind=0.0.0.0; else remote_bind=127.0.0.1; fi
-    fi
-    if [[ "$PROTOCOL" == http && "$remote_bind" != 127.0.0.1 ]]; then
-        echo 'Public TAP access requires HTTPS; use a loopback remote bind for an SSH-only HTTP session.' >&2
-        return 1
-    fi
+    remote_bind=${remote_bind:-0.0.0.0}
     for node in ${FLEXSERV_LOGIN_NODES:-login1 login2 login3 login4}; do
         ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 \
             -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -g -N -T \
@@ -80,14 +90,14 @@ concrete_setup_reverse_tunnels() {
     (( alive > 0 )) || { echo 'No TACC reverse tunnel could be established.' >&2; return 1; }
 }
 concrete_setup_access_url() {
-    if [[ "$PROTOCOL" == http ]]; then
+    if [[ ${FLEXSERV_TUNNEL_BIND:-0.0.0.0} == 127.0.0.1 ]]; then
         FLEXSERV_ACCESS_URL="http://127.0.0.1:${LOGIN_PORT}"
         printf 'SSH-only access: forward laptop port %s to 127.0.0.1:%s on %s.\n' "$LOGIN_PORT" "$LOGIN_PORT" "$FLEXSERV_PUBLIC_HOST"
     else
-        FLEXSERV_ACCESS_URL="https://${FLEXSERV_PUBLIC_HOST:?Missing successful login host}:${LOGIN_PORT}"
+        FLEXSERV_ACCESS_URL="${PROTOCOL}://${FLEXSERV_PUBLIC_HOST:?Missing successful login host}:${LOGIN_PORT}"
     fi
     export FLEXSERV_ACCESS_URL
 }
 concrete_cleanup_site_resources() {
-    if [[ -n "${LOGIN_PORT:-}" ]] && declare -F tap_release_port >/dev/null; then tap_release_port "$LOGIN_PORT" || true; fi
+    if [[ ${TAP_PORT_ALLOCATED:-0} == 1 ]] && declare -F tap_release_port >/dev/null; then tap_release_port "$LOGIN_PORT" || true; fi
 }

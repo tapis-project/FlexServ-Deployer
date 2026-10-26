@@ -5,8 +5,10 @@ umask 077
 # Resolve an administrator's directory alias before Rust anchors private job files.
 export FLEXSERV_JOB_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 if [[ ${1:-} == --help ]]; then
-    echo 'Usage: run_flexserv.sh [--control-plane-only]'
+    echo 'Usage: run_flexserv.sh [--enable-https] [--trust-remote-code] [--control-plane-only]'
     echo 'Runs Gateway on the first Slurm node and one FCS on every allocated node.'
+    echo 'PRI_MODEL_REPO and PUB_MODEL_REPO are environment variables.'
+    echo 'Public HTTP is the default; internal Gateway/FCS mutual TLS is always enabled.'
     exit 0
 fi
 source "$FLEXSERV_JOB_DIR/scripts/install.sh"
@@ -37,8 +39,16 @@ ensure_environment() {
     source "$FLEXSERV_JOB_DIR/scripts/flexserv.env"
     source "$FLEXSERV_JOB_DIR/scripts/tunnel.sh"
 }
-if [[ ${1:-} == --control-plane-only ]]; then export FLEXSERV_PREPARE_BACKENDS=0
-elif [[ $# != 0 ]]; then echo 'Unknown option. Use --help.' >&2; exit 2; fi
+export ENABLE_HTTPS=0 FLEXSERV_TRUST_REMOTE_CODE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --enable-https) export ENABLE_HTTPS=1 ;;
+        --trust-remote-code) export FLEXSERV_TRUST_REMOTE_CODE=true ;;
+        --control-plane-only) export FLEXSERV_PREPARE_BACKENDS=0 ;;
+        *) echo 'Unknown option. Use --help.' >&2; exit 2 ;;
+    esac
+    shift
+done
 ensure_environment
 TUNNEL_PIDS=()
 trap cleanup_flexserv EXIT

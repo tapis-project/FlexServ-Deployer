@@ -1,0 +1,41 @@
+{
+  "stage": "Alpha actual Bash entry",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "fixture_only_linux_labels": true,
+  "real_slurm": "NOT RUN",
+  "real_gpu_vllm": "NOT RUN",
+  "linux_release_abi": "NOT TESTED BY THIS FIXTURE",
+  "binaries": {
+    "gateway": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/FlexServ/flexserv/gateway/target/release/flexserv-gateway",
+      "sha256": "36182171d80de01212ebe4fd677ce7f7bbad28e2979e6f59954c9ed416ea4385"
+    },
+    "server": {
+      "path": "/Users/wei.zhang/Developer/git/Agentic/fcs-deploy-node-v013/target/release/flexserv-capability-server",
+      "sha256": "101aa2bdc1d7eed46ee42f3afc7d2d5eb298963ab92944cd34c0ddbbb1c34970"
+    }
+  },
+  "pack_sha256": "59d424e2272942aa60fb868010e9f102688d1cf3ac84c9e3f8583eddd885b4d3",
+  "scenario": {
+    "checks": [
+      "actual run_flexserv entry resolves a job-directory alias before bundled install, one-node launch and template access functions",
+      "private access info and retained manifest are published only after TLS staging deletion",
+      "CLI flags control public TLS and metadata-only remote-code declaration; repository environment paths reach FCS unchanged",
+      "internal endpoints always use HTTPS and reject connections without a job client certificate in both public modes",
+      "full 65-tool merged Pack loads without Tapis credentials and public MCP authenticates/discovers both namespaces",
+      "public readiness is reachable, MCP still rejects missing/wrong tokens and ordinary logs contain no credentials",
+      "SIGTERM executes shell cleanup, reaps both owned roles and closes all ports while retaining evidence"
+    ],
+    "passed": 7,
+    "seconds": 3.793,
+    "entry_pid": 34009,
+    "owned_roles": [
+      34628,
+      34637
+    ],
+    "all_owned_roles_gone": true,
+    "temporary_job_removed_on_return": "/private/tmp/flexserv-alpha-script-pzef2cy4",
+    "discovered_tools": 40,
+    "pack_tools": 65
+  }
+}

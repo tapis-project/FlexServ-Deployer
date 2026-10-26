@@ -1,5 +1,24 @@
 # FlexServ 1.5 Alpha delivery
 
+## Bash launcher correction (approved 2026-10-25)
+
+- [ ] Replace runtime shell/Python glue with Bash, jq and Linux utilities. Prove
+  with syntax checks, a no-Python shell guard, checksum/Pack and launch fixtures.
+- [ ] Parse `--enable-https` and `--trust-remote-code`; keep PRI_MODEL_REPO and
+  PUB_MODEL_REPO as environment inputs. The latter flag only exports a variable.
+- [ ] Default to public HTTP, use TAP certificates only for explicit HTTPS, and
+  support secure random tokens and local login-port selection without TAP.
+- [ ] Add an explicit Gateway plaintext opt-in and focused configuration tests;
+  keep internal job mTLS independent. Do not change FCS remote-code execution.
+- [ ] Generate the TACC FlexServ-1.5.0 / 1.5.0 App and registration instructions,
+  validate definitions, publish a matching bundle and record actual checks.
+
+Lessons: when deployment logic belongs in a shell entrypoint, use Bash and
+structured CLI utilities rather than embedding Python programs. Remote-code
+acceptance is an environment declaration only until backend support is approved.
+`--enable-https` controls only the public listener. Internal Gateway/FCS transport
+always uses the existing job-scoped mutual TLS, including external HTTP mode.
+
 Approved on 2026-10-25. Ship only Gateway and Capability Server, one v1alpha2 Pack, and simple Slurm Bash entrypoints. Preserve unrelated files.
 
 - [x] Verify remote branches and establish the official FCS checkout. Proof: remote SHA and clean tracked state.

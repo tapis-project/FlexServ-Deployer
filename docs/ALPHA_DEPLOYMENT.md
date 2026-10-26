@@ -2,6 +2,10 @@
 
 The ZIP is extracted by Tapis into an existing Slurm job directory. Start
 `app/run_flexserv.sh`; `--control-plane-only` skips inference environment setup.
+The entry accepts `--enable-https` and `--trust-remote-code` in any order.
+`PRI_MODEL_REPO` and `PUB_MODEL_REPO` remain environment variables, passed unchanged
+to Gateway and the generated FCS host request. Remote-code selection only exports
+`FLEXSERV_TRUST_REMOTE_CODE=true` (otherwise `false`); backend behavior is unchanged.
 There are only two executable products. The architecture suffixes `amd64` and
 `arm64` mean `linux-x86_64` and `linux-aarch64` respectively. The bundle contains
 both, so compute nodes do not download another binary or compile Rust.
@@ -45,7 +49,7 @@ installation failure on a supported platform remains an error. Set
 preparation only in this release, not a serving adapter.
 
 Shared environments use `flock`. The lightweight script runtime needs Bash,
-Python 3.8+, Slurm tools, and standard Linux utilities; backend installation
+jq, Slurm tools, SHA-256/unzip/zipinfo utilities and standard Linux commands; backend installation
 also needs network access and curl or wget. MAX has its own linker and hardware
 requirements. The control plane itself requires no C/C++/protobuf tools.
 
@@ -68,15 +72,23 @@ discovery precede removal of `tmp/tls`. Persistent manifest/status are under
 `runtime/<run-id>`. A missing peer, invalid identity, expired job, startup timeout
 or cleanup error prevents ready publication. Restart recovery is unsupported.
 
-TACC defaults to HTTPS and sources `/share/doc/slurm/tap_functions` (override `TAP_FUNCTIONS`), uses TAP
-token/port/certificate, and opens foreground SSH processes to configured
+TACC defaults to public HTTP. `--enable-https` requires TAP certificate/key files
+and enables only the public Gateway HTTPS listener. The script optionally sources
+`/share/doc/slurm/tap_functions` (override `TAP_FUNCTIONS`). When unavailable it
+generates a cryptographically random token and uses its Bash `get_login_port`
+logic to select a candidate not observed listening on reachable login nodes.
+Actual SSH forwarding must still acquire that port. TAP token/port facilities
+are used when present. The script opens foreground SSH processes to configured
 `FLEXSERV_LOGIN_NODES` (default login1..4). Site SSH configuration must permit
 the requested reverse forwarding (`GatewayPorts clientspecified` for the default
-public HTTPS remote bind). Setting ENABLE_HTTPS=0 restricts reverse forwarding
-to login-node loopback; add a laptop SSH forward for that HTTP-only mode. Override `FLEXSERV_TUNNEL_BIND` or `FLEXSERV_PUBLIC_HOST` for
+public remote bind). Both HTTP and HTTPS request a public reverse bind by default.
+Set `FLEXSERV_TUNNEL_BIND=127.0.0.1` for a laptop-only SSH forwarding setup.
+Override `FLEXSERV_TUNNEL_BIND` or `FLEXSERV_PUBLIC_HOST` for
 site policy and public DNS; the default public host resolves the configured login
 SSH alias, never the compute node. At least one tunnel must stay alive through
-setup. HTTPS certificate and internal mTLS identity are separate.
+setup. Public HTTPS selection and internal mTLS identity are separate: the
+Gateway/FCS transport always verifies both job identities and remains encrypted
+in public HTTP mode. No plaintext fallback exists on the internal channel.
 
 OSC uses `https://$OSC_ONDEMAND_HOST/rnode/<compute-host>/<port>/` (host defaults
 to ondemand.osc.edu), without SSH or Apptainer. Set
@@ -147,3 +159,10 @@ The existing `tapis_def/1.4.0` examples still describe the old 1.4 release and
 retain its arguments; do not point that App at the Alpha ZIP without removing
 retired model/device/quantization arguments. This delivery does not create or
 change live Tapis Apps, Systems or Jobs.
+
+The [1.5.0 TACC App definition](../tapis_def/1.5.0/app.json) and
+[registration/job preparation guide](../tapis_def/1.5.0/README.md) describe the new
+entry. Runtime `.sh` files contain Bash orchestration only: JSON uses checked-in
+jq filters, package installation uses uv CLIs, and package smoke tests invoke
+their normal CLI entrypoints. Python programs remain limited to build/test code
+and the actual inference runtime, not shell configuration helpers.

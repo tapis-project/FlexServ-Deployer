@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Validate the bundled binaries/Pack and prepare missing userspace environments.
+# Verify release bytes and prepare userspace runtimes without interpreter glue.
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
+
 select_arch() {
     case "$(uname -m)" in
         x86_64|amd64|x64) ARCH=amd64 ;;
@@ -9,46 +11,49 @@ select_arch() {
     [[ $(uname -s) == Linux ]] || { echo 'Linux is required.' >&2; return 1; }
     export ARCH
 }
-verify_bundle() {
-    python3 - "$FLEXSERV_JOB_DIR" <<'PY'
-import hashlib, pathlib, sys, zipfile
-root=pathlib.Path(sys.argv[1]).resolve()
-for line in (root/'checksums.sha256').read_text().splitlines():
-    digest,name=line.split('  ',1); p=root/name
-    if pathlib.PurePosixPath(name).is_absolute() or '..' in pathlib.PurePosixPath(name).parts or p.is_symlink() or not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=digest:
-        raise SystemExit('Bundle checksum mismatch: '+name)
-pack=root/'runtime/pack'
-with zipfile.ZipFile(root/'pack/flexserv-capability-pack.zip') as z:
-    seen=set()
-    for info in z.infolist():
-        name=pathlib.PurePosixPath(info.filename)
-        if info.filename in seen or name.is_absolute() or '..' in name.parts or '\\' in info.filename or (info.external_attr>>16)&0o170000==0o120000:
-            raise SystemExit('Unsafe Pack ZIP member')
-        seen.add(info.filename)
-    if len(z.infolist())>4096 or sum(i.file_size for i in z.infolist())>64*1024*1024: raise SystemExit('Pack exceeds 64 MiB')
-    # Pack is immutable runtime input: never overwrite an existing extracted Pack.
-    if pack.is_symlink(): raise SystemExit('Pack directory must not be a link')
-    expected_inventory=z.read('checksums.sha256')
-    if not pack.exists():
-        pack.mkdir(parents=True,mode=0o700)
-        z.extractall(pack)
-if (pack/'checksums.sha256').read_bytes()!=expected_inventory:
-    raise SystemExit('Existing extracted Pack differs from the bundled release')
-expected_names={'checksums.sha256'}
-for line in (pack/'checksums.sha256').read_text().splitlines():
-    digest,name=line.split('  ',1); p=pack/name
-    try: p.resolve().relative_to(pack.resolve())
-    except ValueError: raise SystemExit('Pack path escapes root')
-    expected_names.add(name)
-    if p.is_symlink() or not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=digest:
-        raise SystemExit('Pack checksum mismatch')
-actual_names={p.relative_to(pack).as_posix() for p in pack.rglob('*') if p.is_file() or p.is_symlink()}
-if actual_names!=expected_names: raise SystemExit('Pack file inventory mismatch')
-PY
+check_pack_tree() {
+    local pack=$1 inventory=$2 scratch=$3 path
+    [[ -d "$pack" && ! -L "$pack" ]] && cmp -s "$pack/checksums.sha256" "$inventory" || {
+        echo 'Existing extracted Pack differs from the bundled release.' >&2; return 1;
+    }
+    [[ -z $(find "$pack" -type l -print -quit) ]] || { echo 'Linked Pack entry.' >&2; return 1; }
+    verify_inventory "$pack" "$inventory" || return
+    { awk '{print substr($0,67)}' "$inventory"; echo checksums.sha256; } | LC_ALL=C sort > "$scratch/expected"
+    while IFS= read -r -d '' path; do printf '%s\n' "${path#"$pack/"}"; done \
+        < <(find "$pack" -type f -print0) | LC_ALL=C sort > "$scratch/actual"
+    cmp -s "$scratch/actual" "$scratch/expected" || { echo 'Pack file inventory mismatch.' >&2; return 1; }
 }
+verify_bundle() (
+    # A private staging directory makes failed validation leave the installed Pack untouched.
+    set -e
+    local zip="$FLEXSERV_JOB_DIR/pack/flexserv-capability-pack.zip" pack="$FLEXSERV_JOB_DIR/runtime/pack" scratch name
+    require_commands sha256sum unzip zipinfo cmp find sort awk
+    verify_inventory "$FLEXSERV_JOB_DIR" "$FLEXSERV_JOB_DIR/checksums.sha256"
+    mkdir -p "$FLEXSERV_JOB_DIR/tmp" "$FLEXSERV_JOB_DIR/runtime"
+    scratch=$(mktemp -d "$FLEXSERV_JOB_DIR/tmp/pack-check.XXXXXX")
+    trap 'rm -rf -- "$scratch"' EXIT
+    zipinfo -1 "$zip" > "$scratch/members"
+    [[ -z $(LC_ALL=C sort "$scratch/members" | uniq -d) ]] || { echo 'Duplicate Pack ZIP member.' >&2; exit 1; }
+    while IFS= read -r name; do
+        safe_relative_path "${name%/}" || { echo 'Unsafe Pack ZIP member.' >&2; exit 1; }
+    done < "$scratch/members"
+    zipinfo -l "$zip" | awk '$1 ~ /^l/ {bad=1} END {exit bad}' || { echo 'Linked Pack ZIP member.' >&2; exit 1; }
+    unzip -l "$zip" | awk '$2 ~ /-/ && $3 ~ /:/ {count++; bytes+=$1} END {exit(count==0 || count>4096 || bytes>67108864)}' || {
+        echo 'Pack exceeds its file or byte limit.' >&2; exit 1;
+    }
+    unzip -p "$zip" checksums.sha256 > "$scratch/inventory"
+    if [[ ! -e "$pack" && ! -L "$pack" ]]; then
+        mkdir "$scratch/pack"
+        unzip -q "$zip" -d "$scratch/pack"
+        check_pack_tree "$scratch/pack" "$scratch/inventory" "$scratch"
+        mv "$scratch/pack" "$pack"
+    else
+        check_pack_tree "$pack" "$scratch/inventory" "$scratch"
+    fi
+)
 ensure_uv() {
     export PATH="$HOME/.local/bin:$PATH"
-    UV_BIN="$HOME/.local/bin/uv"
+    export UV_BIN="$HOME/.local/bin/uv"
     if [[ ! -x "$UV_BIN" ]]; then
         local installer
         installer=$(mktemp "$FLEXSERV_JOB_DIR/tmp/uv-install.XXXXXX")
@@ -59,84 +64,84 @@ ensure_uv() {
         rm -f -- "$installer"
     fi
     "$UV_BIN" --version
-    export UV_BIN
 }
 venv_ready() {
-    local python=$1; shift
-    [[ -x "$python" ]] || return 1
-    "$python" - "$@" <<'PY'
-import importlib, importlib.metadata as metadata, sys
-if sys.version_info[:2] != (3,13): raise SystemExit(1)
-for requirement in sys.argv[1:]:
-    name, _, version=requirement.partition('==')
-    if version and metadata.version(name)!=version: raise SystemExit(1)
-    importlib.import_module(name)
-PY
+    local executable=$1 packages requirement name version
+    shift
+    [[ -x "$executable" && $("$executable" --version 2>&1) == 'Python 3.13.'* ]] || return 1
+    packages=$("$UV_BIN" pip list --python "$executable" --format json) || return 1
+    for requirement in "$@"; do
+        name=${requirement%%==*}; version=
+        if [[ "$requirement" == *==* ]]; then version=${requirement#*==}; fi
+        jq -e --arg name "$name" --arg version "$version" \
+            'any(.[]; .name==$name and ($version=="" or .version==$version))' <<< "$packages" >/dev/null || return 1
+    done
+}
+inspect_accelerator_backend() {
+    "$FCS_BIN" --internal-host-probe | jq -er '
+        [.gpus[]? | ((.device_type//"")+" "+(.name//"")|ascii_downcase) |
+          if test("nvidia|cuda") then "cuda" elif test("amd|radeon|rocm") then "rocm"
+          elif test("intel|xpu") then "xpu" else empty end] | unique |
+        if length==1 then .[0] else error("Set FLEXSERV_ACCELERATOR_BACKEND explicitly") end'
 }
 ensure_backend_environments() {
+    require_commands flock timeout stat
     mkdir -p "$FLEXSERV_VENV_ROOT" || { echo 'Set a writable FLEXSERV_VENV_ROOT.' >&2; return 1; }
-    python3 - "$FLEXSERV_VENV_ROOT" <<'PY'
-import os,pathlib,sys
-p=pathlib.Path(sys.argv[1]); st=p.stat()
-if p.resolve()!=p or st.st_uid!=os.geteuid() or st.st_mode&0o022:
-    raise SystemExit('Set FLEXSERV_VENV_ROOT to a canonical directory owned by this account and not writable by other accounts; shared site roots are never chmod-ed automatically')
-PY
-    command -v flock >/dev/null || { echo 'flock is required for shared environment installation.' >&2; return 1; }
-    # One per-profile lock covers Python and both environments across concurrent jobs.
-    exec 9>"$FLEXSERV_VENV_ROOT/.install-$HARDWARE_ENV.lock"
-    flock 9
-    if [[ -z "${FLEXSERV_ACCELERATOR_BACKEND:-}" ]]; then
-        FLEXSERV_ACCELERATOR_BACKEND=$("$FCS_BIN" --internal-host-probe | python3 -c '
-import json,sys
-facts=json.load(sys.stdin); names=" ".join(str(g.get("device_type",""))+" "+str(g.get("name","")) for g in facts.get("gpus",[])).lower()
-backend="cuda" if "nvidia" in names else "rocm" if "amd" in names else "xpu" if "intel" in names else ""
-if not backend: raise SystemExit("Cannot detect accelerator; set FLEXSERV_ACCELERATOR_BACKEND explicitly")
-print(backend)')
-        export FLEXSERV_ACCELERATOR_BACKEND
-    fi
+    local identity owner mode canonical
+    identity=$(stat -c '%u %a' "$FLEXSERV_VENV_ROOT" 2>/dev/null || stat -f '%u %Lp' "$FLEXSERV_VENV_ROOT")
+    read -r owner mode <<< "$identity"
+    canonical=$(cd -- "$FLEXSERV_VENV_ROOT" && pwd -P)
+    [[ "$canonical" == "$FLEXSERV_VENV_ROOT" && "$owner" == "$(id -u)" ]] && (( (8#$mode & 8#022)==0 )) || {
+        echo 'Use a canonical VENV root owned by this account and not writable by other accounts.' >&2; return 1;
+    }
+    exec 9>"$FLEXSERV_VENV_ROOT/.install-$HARDWARE_ENV.lock"; flock 9
+    export FLEXSERV_ACCELERATOR_BACKEND=${FLEXSERV_ACCELERATOR_BACKEND:-$(inspect_accelerator_backend)}
+    case "$FLEXSERV_ACCELERATOR_BACKEND" in cuda|xpu|rocm) ;; *) echo 'No supported accelerator backend.' >&2; return 1 ;; esac
     ensure_uv
     export UV_PYTHON_INSTALL_DIR="$FLEXSERV_VENV_PYTHON_INSTALL_DIR"
     "$UV_BIN" python install 3.13
     local vllm="vllm${VLLM_VERSION:+==$VLLM_VERSION}" aiperf="aiperf${AIPERF_VERSION:+==$AIPERF_VERSION}"
-    if ! venv_ready "$FLEXSERV_VLLM_VENV_PATH/bin/python" "$vllm" "$aiperf" || ! "$UV_BIN" pip check --python "$FLEXSERV_VLLM_VENV_PATH/bin/python"; then
+    if ! venv_ready "$FLEXSERV_VLLM_VENV_PATH/bin/python" "$vllm" "$aiperf" ||
+       ! "$UV_BIN" pip check --python "$FLEXSERV_VLLM_VENV_PATH/bin/python"; then
         if [[ ! -x "$FLEXSERV_VLLM_VENV_PATH/bin/python" ]]; then "$UV_BIN" venv --python 3.13 "$FLEXSERV_VLLM_VENV_PATH"; fi
         local index_args=()
-        if [[ -n "${FLEXSERV_VLLM_INDEX:-}" ]]; then index_args=(--index "$FLEXSERV_VLLM_INDEX"); fi
-        # XPU/ROCm package sources must be approved explicitly rather than using CUDA defaults.
-        case "${FLEXSERV_ACCELERATOR_BACKEND:-}" in
+        if [[ -n ${FLEXSERV_VLLM_INDEX:-} ]]; then index_args=(--index "$FLEXSERV_VLLM_INDEX"); fi
+        case "$FLEXSERV_ACCELERATOR_BACKEND" in
             xpu|rocm) [[ ${#index_args[@]} != 0 ]] || { echo 'Set FLEXSERV_VLLM_INDEX for XPU/ROCm.' >&2; return 1; } ;;
         esac
-        "$UV_BIN" pip install --only-binary=:all: --python "$FLEXSERV_VLLM_VENV_PATH/bin/python" ${index_args[@]+"${index_args[@]}"} "$vllm" "$aiperf"
+        "$UV_BIN" pip install --only-binary=:all: --python "$FLEXSERV_VLLM_VENV_PATH/bin/python" \
+            ${index_args[@]+"${index_args[@]}"} "$vllm" "$aiperf"
         venv_ready "$FLEXSERV_VLLM_VENV_PATH/bin/python" "$vllm" "$aiperf"
         "$UV_BIN" pip check --python "$FLEXSERV_VLLM_VENV_PATH/bin/python"
     fi
-    FLEXSERV_ACCELERATOR_BACKEND=$("$FLEXSERV_VLLM_VENV_PATH/bin/python" -c 'import torch; print("rocm" if torch.version.hip else "xpu" if hasattr(torch,"xpu") and torch.xpu.is_available() else "cuda" if torch.cuda.is_available() else "cpu")')
-    export FLEXSERV_ACCELERATOR_BACKEND
-    case "$FLEXSERV_ACCELERATOR_BACKEND" in cuda|xpu|rocm) ;; *) echo 'No supported accelerator runtime is available; use --control-plane-only for control-plane validation.' >&2; return 1 ;; esac
+    # Package CLIs perform their normal imports; detailed runtime checks stay in FCS.
+    timeout 60 "$FLEXSERV_VLLM_VENV_PATH/bin/vllm" --version
+    timeout 60 "$FLEXSERV_VLLM_VENV_PATH/bin/aiperf" --version
     ensure_max
-    "$FLEXSERV_VLLM_VENV_PATH/bin/python" - "$FLEXSERV_MAX_VENV_PATH/bin/python" > "$FLEXSERV_JOB_DIR/runtime/environment-versions.json" <<'PY'
-import importlib.metadata as m,json,os,subprocess,sys
-info={'python':sys.version.split()[0],'uv':subprocess.check_output([os.environ['UV_BIN'],'--version'],text=True).strip(),
-      'vllm':m.version('vllm'),'aiperf':m.version('aiperf'),'accelerator_backend':os.environ['FLEXSERV_ACCELERATOR_BACKEND'],
-      'max_status':os.environ.get('FLEXSERV_MAX_STATUS','not_checked')}
-if info['max_status']=='ready':
-    info['max']=subprocess.check_output([sys.argv[1],'-c','import importlib.metadata as m; print(m.version("max"))'],text=True).strip()
-print(json.dumps(info,indent=2))
-PY
+    local packages python_version max_version=
+    packages=$("$UV_BIN" pip list --python "$FLEXSERV_VLLM_VENV_PATH/bin/python" --format json)
+    python_version=$("$FLEXSERV_VLLM_VENV_PATH/bin/python" --version)
+    if [[ "$FLEXSERV_MAX_STATUS" == ready ]]; then
+        max_version=$("$UV_BIN" pip list --python "$FLEXSERV_MAX_VENV_PATH/bin/python" --format json | jq -r '.[]|select(.name=="max")|.version')
+    fi
+    jq -n --arg python "$python_version" --arg uv "$("$UV_BIN" --version)" --argjson packages "$packages" \
+        --arg backend "$FLEXSERV_ACCELERATOR_BACKEND" --arg status "$FLEXSERV_MAX_STATUS" --arg max "$max_version" \
+        '{python:$python,uv:$uv,accelerator_backend:$backend,max_status:$status,
+          vllm:($packages|map(select(.name=="vllm"))[0].version),aiperf:($packages|map(select(.name=="aiperf"))[0].version)}
+          + if $status=="ready" then {max:$max} else {} end' > "$FLEXSERV_JOB_DIR/runtime/environment-versions.json"
     flock -u 9; exec 9>&-
 }
 max_supported() {
-    # Wheel resolution validates the selected stable version against this Python/ABI.
-    [[ ${FLEXSERV_ACCELERATOR_BACKEND:-} != xpu ]] && command -v cc >/dev/null || return 1
-    python3 - <<'PYTHON'
-import platform
-if platform.system() != 'Linux': raise SystemExit(1)
-libc,version=platform.libc_ver()
-if libc != 'glibc' or tuple(map(int,version.split('.')[:2])) < (2,35): raise SystemExit(1)
-if platform.machine()=='x86_64':
-    flags=open('/proc/cpuinfo').read().split('flags',1)[-1].split('\n',1)[0].split()
-    if not {'avx','avx2','bmi1','bmi2','f16c','fma','movbe','xsave'} <= set(flags) or not ({'abm','lzcnt'} & set(flags)): raise SystemExit(1)
-PYTHON
+    [[ ${FLEXSERV_ACCELERATOR_BACKEND:-} != xpu && $(uname -s) == Linux ]] && command -v cc >/dev/null || return 1
+    local libc major minor flags feature
+    libc=$(getconf GNU_LIBC_VERSION) || return 1
+    libc=${libc##* }; major=${libc%%.*}; minor=${libc#*.}; minor=${minor%%.*}
+    [[ "$major.$minor" =~ ^[0-9]+\.[0-9]+$ ]] && (( major>2 || (major==2 && minor>=35) )) || return 1
+    if [[ $(uname -m) == x86_64 ]]; then
+        flags=" $(awk -F: '/^flags/ {print $2; exit}' /proc/cpuinfo) "
+        for feature in avx avx2 bmi1 bmi2 f16c fma movbe xsave; do [[ "$flags" == *" $feature "* ]] || return 1; done
+        [[ "$flags" == *' abm '* || "$flags" == *' lzcnt '* ]] || return 1
+    fi
 }
 ensure_max() {
     export FLEXSERV_MAX_STATUS=not_checked
@@ -160,13 +165,17 @@ ensure_max() {
         (cd "$FLEXSERV_MAX_VENV_ROOT" && UV_PROJECT_ENVIRONMENT="$FLEXSERV_MAX_VENV_PATH" "$UV_BIN" add --no-build "max[all]${MAX_VERSION:+==$MAX_VERSION}")
         venv_ready "$FLEXSERV_MAX_VENV_PATH/bin/python" "$requirement"
         "$UV_BIN" pip check --python "$FLEXSERV_MAX_VENV_PATH/bin/python"
-        "$FLEXSERV_MAX_VENV_PATH/bin/max" --help >/dev/null
     fi
+    timeout 60 "$FLEXSERV_MAX_VENV_PATH/bin/max" --help >/dev/null
     export FLEXSERV_MAX_STATUS=ready
 }
 install_flexserv() {
-    python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else "Python 3.8+ is required for the launcher")'
+    require_commands jq od sha256sum unzip zipinfo getent date
+    valid_port "$LOCAL_PORT" || { echo 'Invalid LOCAL_PORT.' >&2; return 1; }
+    [[ "$STARTUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]{0,4}$ ]] || { echo 'Invalid startup timeout.' >&2; return 1; }
     mkdir -p "$FLEXSERV_JOB_DIR/tmp" "$FLEXSERV_JOB_DIR/runtime" "$FLEXSERV_JOB_DIR/logs" "$FLEXSERV_JOB_DIR/reports"
+    mkdir -p "$PRI_MODEL_REPO"
+    [[ -d "$PUB_MODEL_REPO" ]] || mkdir -p "$PUB_MODEL_REPO"
     select_arch; verify_bundle
     GATEWAY_BIN="$FLEXSERV_JOB_DIR/bin/flexserv-gateway-$ARCH.bin"
     FCS_BIN="$FLEXSERV_JOB_DIR/bin/flexserv-capability-server-$ARCH.bin"

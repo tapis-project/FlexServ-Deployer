@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-25",
+  "status": "LOCAL_CHECKS_PASS; MATCHING_RELEASE_PENDING",
+  "shell": "Bash only for runtime orchestration; jq/core utilities; no Python glue",
+  "gateway_library_tests": 279,
+  "gateway_config_tests": 12,
+  "script_unit_tests": 16,
+  "http_runtime_checks": 7,
+  "https_runtime_checks": 7,
+  "internal_transport": "Job-scoped mutual TLS in both public modes; no-client-certificate requests rejected",
+  "public_authentication": "Missing/wrong MCP tokens rejected in both public modes",
+  "remote_code": "Only FLEXSERV_TRUST_REMOTE_CODE is exported; no FCS source/profile/backend change",
+  "tapis_app": {
+    "id": "FlexServ-1.5.0",
+    "version": "1.5.0",
+    "tenant": "tacc",
+    "registered": false
+  },
+  "not_run": [
+    "Real Slurm/TACC TAP or login forwarding",
+    "Real vLLM/MAX installation",
+    "TACC tenant registration or job submission"
+  ]
+}

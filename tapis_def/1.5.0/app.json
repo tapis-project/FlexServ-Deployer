@@ -1,0 +1,86 @@
+{
+  "id": "FlexServ-1.5.0",
+  "version": "1.5.0",
+  "description": "Native FlexServ Gateway and Capability Servers in a Slurm allocation. Public HTTP by default; internal job-scoped mutual TLS is always enabled.",
+  "enabled": true,
+  "runtime": "ZIP",
+  "containerImage": "https://github.com/tapis-project/FlexServ-Deployer/releases/download/tapis-flexserv-1.5.0-alpha-44/Tapis-FlexServ.zip",
+  "jobType": "BATCH",
+  "maxJobs": -1,
+  "maxJobsPerUser": -1,
+  "strictFileInputs": true,
+  "jobAttributes": {
+    "description": "FlexServ control plane for ${JobOwner}",
+    "dynamicExecSystem": false,
+    "execSystemExecDir": "${JobWorkingDir}",
+    "execSystemInputDir": "${JobWorkingDir}",
+    "execSystemOutputDir": "${JobWorkingDir}",
+    "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+    "archiveMode": "ALWAYS",
+    "isMpi": false,
+    "parameterSet": {
+      "appArgs": [
+        {
+          "name": "enableHttps",
+          "description": "Use TAP certificate/key files for the public Gateway HTTPS listener. Omit for HTTP. Internal Gateway/FCS mutual TLS is always enabled.",
+          "inputMode": "INCLUDE_ON_DEMAND",
+          "arg": "--enable-https"
+        },
+        {
+          "name": "trustRemoteCode",
+          "description": "Only export FLEXSERV_TRUST_REMOTE_CODE=true. This release does not change backend execution or authorization.",
+          "inputMode": "INCLUDE_ON_DEMAND",
+          "arg": "--trust-remote-code"
+        },
+        {
+          "name": "controlPlaneOnly",
+          "description": "Skip vLLM/aiperf/MAX environment installation for initial Gateway/FCS startup and shutdown checks.",
+          "inputMode": "INCLUDE_ON_DEMAND",
+          "arg": "--control-plane-only"
+        }
+      ],
+      "schedulerOptions": [
+        {
+          "name": "allocation",
+          "description": "The job must supply -A followed by a valid TACC allocation. No allocation is assumed by this application.",
+          "inputMode": "REQUIRED",
+          "arg": "-A"
+        }
+      ],
+      "envVariables": [
+        {
+          "key": "PRI_MODEL_REPO",
+          "value": "HOST_EVAL($SCRATCH)/flexserv/models",
+          "description": "Writable private model repository on the execution host.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        },
+        {
+          "key": "PUB_MODEL_REPO",
+          "value": "/work/projects/aci/cic/apps/flexserv/models",
+          "description": "Existing public model repository; override for your site if necessary.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        },
+        {
+          "key": "FLEXSERV_SITE",
+          "value": "tacc",
+          "description": "TACC login forwarding with optional TAP integration.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        },
+        {
+          "key": "FLEXSERV_VENV_ROOT",
+          "value": "HOST_EVAL($HOME)/tapis-app/flexserv/virt_envs",
+          "description": "Private userspace runtime root, owned by the job account.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        }
+      ],
+      "archiveFilter": {"includeLaunchFiles": true},
+      "logConfig": {"stdoutFilename": "flexserv.out", "stderrFilename": "flexserv.err"}
+    },
+    "nodeCount": 1,
+    "coresPerNode": 2,
+    "memoryMB": 8192,
+    "maxMinutes": 30
+  },
+  "tags": ["appName: FlexServ-1.5.0"],
+  "notes": {"label": "FlexServ-1.5.0", "category": "Utilities", "internalTransport": "job-scoped-mTLS"}
+}

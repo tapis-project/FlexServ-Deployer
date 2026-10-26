@@ -8,6 +8,11 @@ export FLEXSERV_BUNDLE_DIR=/shared/flexserv/bundle
 bash interactive-slurm/launch.sh --control-plane-only
 ```
 
+Public HTTP is the default. Add `--enable-https` to use TAP certificate/key files.
+Internal Gateway/FCS mutual TLS is mandatory in both modes. Set `PRI_MODEL_REPO`
+and `PUB_MODEL_REPO` in the environment. `--trust-remote-code` only exports
+`FLEXSERV_TRUST_REMOTE_CODE=true` for future backend integration.
+
 The wrapper delegates to the same `app/run_flexserv.sh` used by Tapis. It does
 not compile code, use a Bootstrap binary, or maintain separate policies. Drop
 `--control-plane-only` to prepare the configured inference environments. Set an

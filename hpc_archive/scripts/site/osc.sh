@@ -2,11 +2,11 @@
 # OSC uses Open OnDemand HTTPS termination; no SSH tunnel or container is required.
 get_host_type() { printf '%s\n' "${HOST_TYPE:-${SLURM_CLUSTER_NAME:-osc}}"; }
 get_flexserv_venv_root() { printf '%s\n' "$HOME/tapis-app/flexserv/virt_envs"; }
-concrete_setup_environment() { :; }
-concrete_setup_random_token() { RAND_TOKEN=${RAND_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')}; export RAND_TOKEN; }
+concrete_setup_environment() { load_tap_functions; }
+concrete_setup_random_token() { RAND_TOKEN=${RAND_TOKEN:-$(secure_random_hex)}; export RAND_TOKEN; }
 concrete_setup_login_port() { :; }
 concrete_setup_cert_tls() {
-    ENABLE_HTTPS=0; unset TLS_CERT TLS_KEY
+    setup_public_tls
     # Only the explicitly approved OOD proxy may reach a plaintext public listener.
     [[ -n "${FLEXSERV_TRUSTED_PROXY_NETWORKS:-}" ]] || {
         echo 'Set FLEXSERV_TRUSTED_PROXY_NETWORKS to the approved OOD proxy CIDRs.' >&2; return 1;
