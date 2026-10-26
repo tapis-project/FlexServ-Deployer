@@ -33,6 +33,13 @@ jobs:
         run: |
           for file in hpc_archive/app/*.sh hpc_archive/scripts/*.sh hpc_archive/scripts/site/*.sh scripts/update-alpha-channel.sh; do bash -n "$file"; done
           python3 -m unittest discover -s tests/release
+      - name: Verify read access to component releases
+        env:
+          GH_TOKEN: ${{ secrets.FLEXSERV_SOURCE_TOKEN || secrets.FCS_ARTIFACT_READ_TOKEN || github.token }}
+        run: |
+          for repo in tapis-project/FlexServ tapis-project/FlexServ-FCS tapis-project/FlexServ-FCS-Pack; do
+            gh api "repos/$repo/releases?per_page=5" --jq '[.[]|{tag:.tag_name,draft,assets:(.assets|length)}]'
+          done
   bundle:
     needs: validate
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
