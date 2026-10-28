@@ -25,11 +25,10 @@ class Bundle(unittest.TestCase):
             for component in ('flexserv-gateway','flexserv-capability-server'):
                 for arch in ('amd64','arm64'):
                     (binaries/f'{component}-{arch}.bin').write_bytes(b'controlled-fixture-not-a-release-binary')
-            pack=root/'pack.zip'
-            with zipfile.ZipFile(pack,'w') as archive:
-                archive.writestr('manifest.json','{}');archive.writestr('checksums.sha256','')
+            tag='pack-v1.5.0-alpha-2'
+            revisions={'gateway':{'commit':'a'*40},'pack':{'tag':tag}}
             a,b=root/'a.zip',root/'b.zip'
-            for output in [a,b]:module.assemble(ROOT/'hpc_archive',binaries,pack,output,{'gateway':{'commit':'a'*40}})
+            for output in [a,b]:module.assemble(ROOT/'hpc_archive',binaries,tag,output,revisions)
             self.assertEqual(a.read_bytes(),b.read_bytes())
             with zipfile.ZipFile(a) as archive:
                 names=archive.namelist()
@@ -37,6 +36,8 @@ class Bundle(unittest.TestCase):
                 self.assertIn('scripts/site/osc.sh',names)
                 self.assertIn('bin/flexserv-capability-server-arm64.bin',names)
                 self.assertNotIn('bin/flexserv-bootstrap',names)
+                self.assertEqual(archive.read('pack-tag.txt').decode(),tag+'\n')
+                self.assertFalse(any(name.startswith('pack/') for name in names))
                 self.assertEqual(archive.read('tapisjob.manifest').decode().strip(),'tapisjob_executable=app/run_flexserv.sh\nmy_project=FlexServ')
                 for line in archive.read('checksums.sha256').decode().splitlines():
                     digest,name=line.split('  ',1)
@@ -46,7 +47,17 @@ class Bundle(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
             with self.assertRaisesRegex(ValueError,'Missing architecture'):
-                module.assemble(ROOT/'hpc_archive',root,root/'unused',root/'out.zip',{})
+                module.assemble(ROOT/'hpc_archive',root,'pack-v1.5.0-alpha-2',root/'out.zip',{})
+
+    def test_pack_tag_must_match_valid_resolved_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); binaries=root/'bin'; binaries.mkdir()
+            for component in ('flexserv-gateway','flexserv-capability-server'):
+                for arch in ('amd64','arm64'):
+                    (binaries/f'{component}-{arch}.bin').write_bytes(b'fixture')
+            for tag,selected in [('../bad','../bad'),('pack-good','pack-other'),('','')]:
+                with self.subTest(tag=tag),self.assertRaises(ValueError):
+                    module.assemble(ROOT/'hpc_archive',binaries,tag,root/'out.zip',{'pack':{'tag':selected}})
 
     def test_deployer_keeps_the_existing_alpha_tag(self):
         workflow=(ROOT/'.github/workflows/publish-flexserv-bundle.yml').read_text()
@@ -168,15 +179,17 @@ class Bundle(unittest.TestCase):
         parameters=app['jobAttributes']['parameterSet']
         variables={v['key']:v['value'] for v in parameters['envVariables']}
         self.assertEqual(variables['FLEXSERV_RUNTIME_ROOT'],'HOST_EVAL($SCRATCH)/flexserv')
+        self.assertEqual(variables['PACK_TO_LOAD'],'tapis-workflow-pack.zip;vllm-pack.zip')
         self.assertEqual({v['key'] for v in parameters['envVariables']} & {'PRI_MODEL_REPO','PUB_MODEL_REPO'}, {'PRI_MODEL_REPO','PUB_MODEL_REPO'})
         self.assertEqual({v['arg'] for v in parameters['appArgs']},{'--enable-https','--trust-remote-code','--control-plane-only'})
         result=subprocess.check_output(['bash',str(ROOT/'tapis_def/1.5.0/prepare-job.sh')],
-            env=dict(os.environ,TAPIS_EXEC_SYSTEM_ID='fixture-system',TAPIS_LOGICAL_QUEUE='fixture',TAPIS_ALLOCATION='fixture123',FLEXSERV_RUNTIME_ROOT='/scratch/fixture state'),text=True)
+            env=dict(os.environ,TAPIS_EXEC_SYSTEM_ID='fixture-system',TAPIS_LOGICAL_QUEUE='fixture',TAPIS_ALLOCATION='fixture123',FLEXSERV_RUNTIME_ROOT='/scratch/fixture state',PACK_TO_LOAD='./custom one.zip;vllm-pack.zip'),text=True)
         job=json.loads(result);self.assertEqual(job['appId'],app['id']);self.assertEqual(job['appVersion'],app['version'])
         flags={arg['name']:arg['include'] for arg in job['parameterSet']['appArgs']}
         self.assertEqual(flags,dict(enableHttps=False,trustRemoteCode=False,controlPlaneOnly=True))
         self.assertEqual(job['parameterSet']['schedulerOptions'][0]['arg'],'-A fixture123')
         self.assertEqual({v['key']:v['value'] for v in job['parameterSet']['envVariables']}['FLEXSERV_RUNTIME_ROOT'],'/scratch/fixture state')
+        self.assertEqual({v['key']:v['value'] for v in job['parameterSet']['envVariables']}['PACK_TO_LOAD'],'./custom one.zip;vllm-pack.zip')
 
     def test_worker_json_preserves_paths_and_does_not_enable_remote_code(self):
         with tempfile.TemporaryDirectory() as temporary:

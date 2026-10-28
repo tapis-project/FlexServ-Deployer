@@ -11,8 +11,9 @@ on:
         description: FCS release tag (empty selects latest on feature/new_fcs)
         type: string
       pack_tag:
-        description: Pack release tag (empty selects latest on feature/new_fcs)
+        description: Required public FCS Pack release tag
         type: string
+        required: true
       publish_release:
         default: false
         type: boolean
@@ -40,7 +41,7 @@ jobs:
           done
   bundle:
     needs: validate
-    if: github.ref == 'refs/heads/feature/1.5.0-alpha' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -59,23 +60,21 @@ jobs:
           FCS_TAG: ${{ inputs.fcs_tag }}
           PACK_TAG: ${{ inputs.pack_tag }}
         run: |
+          test -n "$PACK_TAG" || { echo 'Pack release tag is required.' >&2; exit 1; }
           python3 scripts/download_component_releases.py --gateway-tag "$GATEWAY_TAG" --fcs-tag "$FCS_TAG" --pack-tag "$PACK_TAG" --output downloaded
           python3 scripts/prepare_release_inputs.py --downloads downloaded --output dist
-      - name: Validate standalone and merged Packs using the released FCS
+      - name: Validate standalone and combined Packs using the released FCS
         run: |
           chmod u+x dist/binaries/flexserv-capability-server-amd64.bin
           for name in tapis-workflow-pack vllm-pack; do
-            mkdir -p "pack-check/$name"
-            unzip -q "downloaded/pack/$name.zip" -d "pack-check/$name"
-            dist/binaries/flexserv-capability-server-amd64.bin --pack "pack-check/$name" --check-pack --allow-unsigned-demo > "dist/$name-check.json"
+            dist/binaries/flexserv-capability-server-amd64.bin --pack "downloaded/pack/$name.zip" --check-pack --allow-unsigned-demo > "dist/$name-check.json"
           done
-          mkdir -p pack-check/merged
-          unzip -q dist/flexserv-capability-pack.zip -d pack-check/merged
-          dist/binaries/flexserv-capability-server-amd64.bin --pack pack-check/merged --check-pack --allow-unsigned-demo > dist/merged-pack-check.json
-          rm -rf pack-check
+          dist/binaries/flexserv-capability-server-amd64.bin --pack downloaded/pack/tapis-workflow-pack.zip --pack downloaded/pack/vllm-pack.zip --check-pack --allow-unsigned-demo > dist/combined-pack-check.json
       - name: Assemble complete Tapis ZIP without compiling components
+        env:
+          PACK_TAG: ${{ inputs.pack_tag }}
         run: |
-          python3 scripts/assemble_bundle.py --source hpc_archive --binaries dist/binaries --pack dist/flexserv-capability-pack.zip --revisions dist/revisions.json --output dist/Tapis-FlexServ.zip
+          python3 scripts/assemble_bundle.py --source hpc_archive --binaries dist/binaries --pack-tag "$PACK_TAG" --revisions dist/revisions.json --output dist/Tapis-FlexServ.zip
           unzip -t dist/Tapis-FlexServ.zip
       - uses: actions/upload-artifact@v4
         with:
@@ -86,7 +85,7 @@ jobs:
             dist/*-check.json
           if-no-files-found: error
       - name: Refresh existing Alpha 44 download URL
-        if: github.ref == 'refs/heads/feature/1.5.0-alpha' && (github.event_name == 'push' || inputs.publish_release)
+        if: github.ref == 'refs/heads/feature/1.5.0-alpha' && inputs.publish_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/update-alpha-channel.sh dist

@@ -1,4 +1,4 @@
-"""Exercise standalone Pack merge and binary provenance without native builds."""
+"""Exercise standalone Pack checks and binary provenance without native builds."""
 import hashlib
 import importlib.util
 import json
@@ -26,24 +26,6 @@ def write_pack(path, name, content=b'shared', version='1.0.0'):
 
 
 class ComponentInputs(unittest.TestCase):
-    def test_merge_identical_helpers_is_deterministic_and_conflicts_fail(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            a, b = root / 'a.zip', root / 'b.zip'
-            write_pack(a, 'a'); write_pack(b, 'b')
-            one, two = root / 'one.zip', root / 'two.zip'
-            inputs.merge_packs([a, b], one); inputs.merge_packs([b, a], two)
-            self.assertEqual(one.read_bytes(), two.read_bytes())
-            manifest, payload = inputs.read_pack(one)
-            self.assertEqual(len(manifest['toolsets']), 1)
-            self.assertEqual(payload['fcs_tools/io/shared/tool.yaml'], b'shared')
-            write_pack(b, 'b', b'conflicting')
-            with self.assertRaisesRegex(ValueError, 'Conflicting'):
-                inputs.merge_packs([a, b], root / 'bad.zip')
-            write_pack(b, 'b', version='2.0.0')
-            with self.assertRaisesRegex(ValueError, 'versions'):
-                inputs.merge_packs([a, b], root / 'bad.zip')
-
     def test_pack_tampering_and_unsafe_member_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'pack.zip'
@@ -82,6 +64,7 @@ class ComponentInputs(unittest.TestCase):
                     result = json.loads((root / 'dist/revisions.json').read_text())
                     self.assertEqual(result['gateway']['version'], '1')
                     self.assertTrue((root / 'dist/binaries/flexserv-capability-server-arm64.bin').exists())
+                    self.assertFalse((root / 'dist/flexserv-capability-pack.zip').exists())
                 else:
                     with self.assertRaises(ValueError):
                         inputs.prepare(source, root / 'dist', 'c' * 40)

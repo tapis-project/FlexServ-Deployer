@@ -51,6 +51,13 @@ environment but still does not download a model or launch vLLM automatically.
 Override `PRI_MODEL_REPO` and `PUB_MODEL_REPO` before generating the job
 when the App defaults do not match your filesystem.
 
+`PACK_TO_LOAD` defaults to `tapis-workflow-pack.zip;vllm-pack.zip`. Each
+filename selects an asset from the bundle's `pack-tag.txt`; absolute or `./`
+paths select local ZIPs instead. Export a quoted semicolon-separated value before
+`prepare-job.sh` to include a job override. Updating an existing Tapis App to add
+this declared environment variable is an operator action; this repository does
+not update tenant resources automatically.
+
 `FLEXSERV_RUNTIME_ROOT` defaults to `HOST_EVAL($SCRATCH)/flexserv` for persistent
 state/checkpoints reusable across jobs. Export it before `prepare-job.sh` to
 override that location. It is separate from per-job `runtime/<run-id>` and

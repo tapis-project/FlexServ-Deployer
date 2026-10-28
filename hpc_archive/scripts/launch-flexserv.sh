@@ -9,7 +9,12 @@ fcs_worker() {
     FCS_BIN="$FLEXSERV_JOB_DIR/bin/flexserv-capability-server-$ARCH.bin"
     local args=(--slurm-rank-config "$runtime/rank-launch.json")
     if [[ "$FLEXSERV_PREPARE_BACKENDS" == 1 ]]; then
-        local policy="$runtime/config/host-$rank" node=${SLURMD_NODENAME:-$(hostname -f)} bind raw
+        local policy="$runtime/config/host-$rank" node=${SLURMD_NODENAME:-$(hostname -f)} bind raw packs=null digest=
+        if [[ ${FLEXSERV_PACK_MODE:-legacy} == multi ]]; then
+            packs=$(jq -c '.packs' "$FLEXSERV_JOB_DIR/runtime/packs.json")
+        else
+            digest=$(file_sha256 "$FLEXSERV_JOB_DIR/runtime/pack/checksums.sha256")
+        fi
         mkdir -p "$policy/work" "$PRI_MODEL_REPO"; chmod 700 "$policy"
         bind=${FLEXSERV_SERVICE_BIND:-}
         if [[ -z "$bind" ]]; then
@@ -24,7 +29,7 @@ fcs_worker() {
             --arg venv "$FLEXSERV_VLLM_VENV_PATH" --arg private "$PRI_MODEL_REPO" --arg public "$PUB_MODEL_REPO" \
             --arg uv "$HOME/.local/bin/uv" --arg hardware "$HARDWARE_ENV" --arg backend "$FLEXSERV_ACCELERATOR_BACKEND" \
             --arg devices "$raw" --arg bind "$bind" --arg host "$node" \
-            --arg digest "$(file_sha256 "$FLEXSERV_JOB_DIR/runtime/pack/checksums.sha256")" \
+            --arg digest "$digest" --argjson packs "$packs" \
             --argjson start "$FLEXSERV_SERVICE_PORT_START" --argjson end "$FLEXSERV_SERVICE_PORT_END" \
             --argjson credential "$([[ -n ${FCS_VLLM_API_KEY:-} ]] && echo true || echo false)" \
             -f "$FLEXSERV_JOB_DIR/scripts/host-request.jq" > "$policy/request.json"
@@ -33,7 +38,7 @@ fcs_worker() {
         args+=(--deploy-policy "$policy/deployment.json" --connections "$policy/connections.json" --workflow-policy "$policy/workflow.json")
     fi
     # FLEXSERV_TRUST_REMOTE_CODE is only inherited metadata in this iteration.
-    unset FLEXSERV_ADMIN_SECRET FCS_MCP_TOKEN FLEXSERV_TOKEN RAND_TOKEN GATEWAY_VLLM_API_KEY
+    unset FLEXSERV_ADMIN_SECRET FCS_MCP_TOKEN FLEXSERV_TOKEN RAND_TOKEN GATEWAY_VLLM_API_KEY PACK_TO_LOAD
     exec "$FCS_BIN" ${args[@]+"${args[@]}"}
 }
 wait_marker() {
@@ -46,7 +51,7 @@ wait_marker() {
     done
 }
 prepare_job_config() {
-    local job end_text end now node rank=0 addresses endpoints='{}' tools
+    local job end_text end now node rank=0 addresses endpoints='{}' tools packs=null digest=
     job=$(TZ=UTC scontrol show job -o "$SLURM_JOB_ID")
     end_text=$(printf '%s\n' "$job" | tr ' ' '\n' | sed -n 's/^EndTime=//p')
     end=$(utc_epoch "$end_text") || return
@@ -70,16 +75,22 @@ prepare_job_config() {
     (( rank > 0 )) && [[ $(LC_ALL=C sort -u "$FLEXSERV_RUNTIME/nodes.txt" | wc -l) -eq "$rank" ]] || {
         echo 'Empty or duplicate Slurm node list.' >&2; return 1;
     }
-    # Identity lines come from the generated catalog; Rust verifies its complete checksum.
-    tools=$({
+    if [[ ${FLEXSERV_PACK_MODE:-legacy} == multi ]]; then
+        packs=$(jq -c '.packs' "$FLEXSERV_JOB_DIR/runtime/packs.json")
+        tools=$(jq -c '.visible_tools + ["gateway.operations.status","gateway.operations.result","gateway.operations.cancel","gateway.operations.list"] | unique' "$FLEXSERV_JOB_DIR/runtime/packs.json")
+    else
+        # Legacy bundles expose identity lines from their checked extracted catalog.
+        digest=$(file_sha256 "$FLEXSERV_JOB_DIR/runtime/pack/checksums.sha256")
+        tools=$({
         while IFS= read -r -d '' node; do
             awk '/^  name: / {name=$2} /^  visibility: true$/ {visible=1} END {if(visible) print name}' "$node"
         done < <(find "$FLEXSERV_JOB_DIR/runtime/pack/fcs_tools" -name tool.yaml -type f -print0)
         printf '%s\n' gateway.operations.status gateway.operations.result gateway.operations.cancel gateway.operations.list
-    } | LC_ALL=C sort -u | jq -Rsc 'split("\n")|map(select(length>0))')
+        } | LC_ALL=C sort -u | jq -Rsc 'split("\n")|map(select(length>0))')
+    fi
     jq -n --arg job "$SLURM_JOB_ID" --arg run "$FLEXSERV_RUN_ID" --arg runtime "$FLEXSERV_RUNTIME" \
         --arg root "$FLEXSERV_JOB_DIR" --arg until "$(utc_timestamp "$end")" --arg principal "$MCP_PRINCIPAL" \
-        --arg digest "$(file_sha256 "$FLEXSERV_JOB_DIR/runtime/pack/checksums.sha256")" \
+        --arg digest "$digest" --argjson packs "$packs" \
         --argjson timeout "$STARTUP_TIMEOUT_SECONDS" --argjson tools "$tools" --argjson endpoints "$endpoints" \
         --arg model "${FLEXSERV_MODEL_ID:-}" --argjson credential "$([[ -n ${FCS_VLLM_API_KEY:-} ]] && echo true || echo false)" \
         -f "$FLEXSERV_JOB_DIR/scripts/job-launch.jq" > "$FLEXSERV_RUNTIME/job-launch.json"

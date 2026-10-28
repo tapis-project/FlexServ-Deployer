@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify component identities and merge Pack data without executing source hooks."""
+"""Verify component identities and Pack data without executing source hooks."""
 import argparse
 import hashlib
 import json
@@ -46,43 +46,6 @@ def read_pack(path):
     return manifest, data
 
 
-def merge_packs(paths, output):
-    """Deduplicate identical helpers and reject all identity or content conflicts."""
-    files, toolsets, locations, base = {}, {}, {}, None
-    for path in paths:
-        manifest, payload = read_pack(path)
-        shared = {k: v for k, v in manifest.items() if k not in ('name', 'toolsets')}
-        if base is not None and shared != base:
-            raise ValueError('Pack manifest versions/targets conflict')
-        base = shared
-        for item in manifest['toolsets']:
-            key = (item['name'], item['version'])
-            if key in toolsets and toolsets[key] != item:
-                raise ValueError('Conflicting toolset identity')
-            if item['path'] in locations and locations[item['path']] != key:
-                raise ValueError('Conflicting toolset location')
-            toolsets[key], locations[item['path']] = item, key
-        for name, content in payload.items():
-            if name in ('manifest.json', 'checksums.sha256'):
-                continue
-            if name in files and files[name] != content:
-                raise ValueError('Conflicting shared Pack file: ' + name)
-            files[name] = content
-    manifest = dict(base, name='flexserv-capability-pack', toolsets=[toolsets[k] for k in sorted(toolsets)])
-    files['manifest.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
-    files['checksums.sha256'] = ''.join(f'{hashlib.sha256(content).hexdigest()}  {name}\n'
-                                      for name, content in sorted(files.items())).encode()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, 'w') as archive:
-        for name, content in sorted(files.items()):
-            entry = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
-            entry.create_system = 3
-            entry.external_attr = 0o100644 << 16
-            entry.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(entry, content)
-    return manifest
-
-
 def prepare(downloads, output, deployer_commit):
     """Cross-check source sidecars before making files eligible for final assembly."""
     metadata = json.loads((downloads / 'resolved.json').read_text())
@@ -114,8 +77,7 @@ def prepare(downloads, output, deployer_commit):
         manifest, _ = read_pack(path)
         if manifest['name'] != path.stem or source['packs'].get(path.stem) != manifest['version']:
             raise ValueError('Pack release name/version mismatch')
-    merged = merge_packs(paths, output / 'flexserv-capability-pack.zip')
-    metadata['pack'].update(version=merged['version'], packs=source['packs'])
+    metadata['pack'].update(packs=source['packs'])
     metadata['deployer'] = dict(repository='tapis-project/FlexServ-Deployer', commit=deployer_commit)
     (output / 'revisions.json').write_text(json.dumps(metadata, indent=2) + '\n')
 

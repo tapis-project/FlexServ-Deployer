@@ -67,6 +67,12 @@
       ],
       "envVariables": [
         {
+          "key": "PACK_TO_LOAD",
+          "value": "tapis-workflow-pack.zip;vllm-pack.zip",
+          "description": "Semicolon-separated Pack release filenames or local ZIP paths for the Capability Server.",
+          "inputMode": "INCLUDE_BY_DEFAULT"
+        },
+        {
           "key": "FLEXSERV_RUNTIME_ROOT",
           "value": "HOST_EVAL($SCRATCH)/flexserv",
           "description": "Persistent FlexServ state and checkpoints shared across jobs. Separate from per-job runtime files and Python environments.",

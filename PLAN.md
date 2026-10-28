@@ -1,5 +1,15 @@
 # FlexServ 1.5 Alpha delivery
 
+## Multi-ZIP release assembly and Slurm startup (2026-10-27)
+
+- [x] Keep independent component releases, require an explicit Pack tag for
+  manual assembly, and publish only the tag text rather than Pack archives.
+- [x] Prepare verified ZIPs once on the head node through the FCS command and
+  bind ordered paths and checksum pins into protected Slurm/host configuration.
+- [x] Preserve old self-contained bundle and single-Pack startup compatibility.
+- [ ] Prove offline fixtures, Bash syntax, workflow lint, local ZIP fallback,
+  cross-pack loading and the native release chain; record unavailable site tests.
+
 ## Stable Alpha App URL and persistent state (2026-10-25)
 
 - [x] Keep the App URL at alpha-44 and promote only verified Alpha archives into

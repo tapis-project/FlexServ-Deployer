@@ -1,7 +1,8 @@
 # Gateway validates these shared contracts again before publishing any readiness.
 {schema_version:1,job_id:$job,deployment_id:("slurm-"+$job),run_id:$run,runtime_dir:$runtime,
  tls_dir:($root+"/tmp/tls/"+$run),nodes_file:($runtime+"/nodes.txt"),run_not_after_utc:$until,
- fcs_arguments:["--pack",($root+"/runtime/pack"),"--approved-checksums",$digest],
+ fcs_arguments:(if $packs==null then ["--pack",($root+"/runtime/pack"),"--approved-checksums",$digest]
+                else [$packs[] | "--pack",.path,"--approved-checksums",.checksums_sha256,"--approved-zip-sha256",.zip_sha256] end),
  startup_timeout_seconds:$timeout,observer_principal:"gateway-observer",
  observer_scopes:["mcp:read","node:read","services:read"],observer_owners:[$principal],
  delegated_principals:[$principal],delegated_scopes:["mcp:read","mcp:call"],

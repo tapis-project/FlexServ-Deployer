@@ -8,33 +8,35 @@ asset other than the inventory itself.
 
 `tapis-project/FlexServ-FCS-Pack`, branch `feature/new_fcs`, releases
 `tapis-workflow-pack.zip` and `vllm-pack.zip`. They are generated from one reviewed
-catalog, each with its own complete Pack checksum and required shared helpers.
+catalog, each with its own complete Pack checksum and required helpers.
 Their release includes source metadata and a release asset inventory.
 
 The Deployer's `feature/1.5.0-alpha` workflow assembles published assets; it never
 checks out component source, installs Rust, invokes component build workflows or
-compiles binaries. Supply component release tags for reproducibility, or leave
-them empty to select the newest published release whose commit belongs to the
-approved component branch. Selection is resolved once to a release ID and commit.
-Drafts and the mutable Deployer Alpha channel are not component inputs.
+compiles binaries. Manual dispatch requires an explicit Pack release tag. The
+selected tag is stored in `pack-tag.txt`; no Pack ZIP is embedded. Gateway and
+FCS tags remain optional selections. Branch pushes run checks only.
 
-Every downloaded file must match both the release inventory and GitHub's asset
+Every CI download must match both the release inventory and GitHub's asset
 digest. Binary source sidecars must match the selected tag commit, and the two
-architectures must report the same version. The two Pack payloads are merged at
-build time: identical shared files are deduplicated, conflicting files or toolset
-identities fail assembly. Fresh manifest and checksums are generated for the
-merged runtime catalog. No downloaded hooks or scripts are executed.
+architectures must report the same version. CI validates both standalone Packs
+and their combined registry using the selected FCS; their files are not merged
+or included in the published bundle. No downloaded hooks or scripts are executed.
 
-The final ZIP keeps the established runtime layout and Slurm scripts. BUILD.json
-records repository, tag, commit, release ID and asset hashes for each component,
-plus the Deployer revision and merged Pack digest. Internal Gateway/FCS mutual
-TLS and the public HTTP/HTTPS switch remain independent and unchanged.
+On the head node, the FCS prepares the selected public release ZIPs and verifies
+their sidecars and complete inventories. Its protected per-job result records
+their paths, ZIP digests and inventory pins; all ranks load the same ordered
+selection. A semicolon-delimited `PACK_TO_LOAD` may also select local ZIP paths.
+Sidecars fetched from the same release provide integrity, not independent
+publisher authentication. Existing self-contained single-Pack bundles remain
+supported. BUILD.json records the selected release and source metadata. Internal
+Gateway/FCS mutual TLS and public HTTP/HTTPS remain independently configured.
 
 Gateway/FCS branch pushes run lightweight publication fixtures. Native binaries
 are built for their component release tags or explicit manual dispatch. Pack
-branch checks package data only. Deployer branch pushes assemble released inputs
-and refresh the existing Alpha 44 assets after all checks pass; a manual build can
-leave publication disabled. No new Deployer tag or release is created.
+branch checks package data only. Deployer branch pushes run checks only. Manual
+assembly supplies a Pack tag and can refresh Alpha 44 after all checks pass. No
+new Deployer tag or release is created.
 
 Component releases require an existing tag at their selected source commit. Push
 the tag to the appropriate tapis-project component repository, or select it in

@@ -23,32 +23,70 @@ check_pack_tree() {
         < <(find "$pack" -type f -print0) | LC_ALL=C sort > "$scratch/actual"
     cmp -s "$scratch/actual" "$scratch/expected" || { echo 'Pack file inventory mismatch.' >&2; return 1; }
 }
-verify_bundle() (
-    # A private staging directory makes failed validation leave the installed Pack untouched.
+prepare_selected_packs() (
+    # The FCS snapshots and validates every ZIP before publishing a manifest.
     set -e
-    local zip="$FLEXSERV_JOB_DIR/pack/flexserv-capability-pack.zip" pack="$FLEXSERV_JOB_DIR/runtime/pack" scratch name
+    local root=$FLEXSERV_JOB_DIR tag selection cache="$FLEXSERV_JOB_DIR/runtime/packs"
+    tag=$(cat "$root/pack-tag.txt")
+    selection=${PACK_TO_LOAD-'tapis-workflow-pack.zip;vllm-pack.zip'}
+    no_link_path "$root" runtime && no_link_path "$root" runtime/packs || {
+        echo 'Pack cache cannot be a symbolic link.' >&2; exit 1;
+    }
+    mkdir -p "$cache"; chmod 700 "$cache"
+    FLEXSERV_PACK_SELECTION_SCRATCH=$(mktemp -d "$root/tmp/pack-select.XXXXXX")
+    trap 'rm -rf -- "$FLEXSERV_PACK_SELECTION_SCRATCH"' EXIT
+    jq -n --arg tag "$tag" --arg selection "$selection" --arg cache "$cache" '
+        ($selection|split(";")) as $items |
+        if (($items|length)==0 or ($items|length)>16 or any($items[]; .=="" or test("[\\r\\n]")))
+        then error("Invalid PACK_TO_LOAD selection")
+        else {release_tag:$tag,selections:$items,output_dir:$cache} end' > "$FLEXSERV_PACK_SELECTION_SCRATCH/request.json"
+    "$FCS_BIN" --prepare-packs "$FLEXSERV_PACK_SELECTION_SCRATCH/request.json" > "$FLEXSERV_PACK_SELECTION_SCRATCH/packs.json"
+    jq -e --arg prefix "$cache/" --arg tag "$tag" '
+        .release_tag==$tag and (.packs|type)=="array" and (.packs|length)>0 and (.packs|length)<=16 and
+        all(.packs[]; (.name|type)=="string" and (.name|length)>0 and
+            (.source=="github" or .source=="local") and (.path|type)=="string" and (.path|startswith($prefix)) and
+            (.checksums_sha256|type)=="string" and (.checksums_sha256|test("^[a-f0-9]{64}$")) and
+            (.zip_sha256|type)=="string" and (.zip_sha256|test("^[a-f0-9]{64}$"))) and
+        (.visible_tools|type)=="array" and all(.visible_tools[]; type=="string")' "$FLEXSERV_PACK_SELECTION_SCRATCH/packs.json" >/dev/null || {
+        echo 'Invalid prepared Pack manifest.' >&2; exit 1;
+    }
+    chmod 600 "$FLEXSERV_PACK_SELECTION_SCRATCH/packs.json"
+    mv "$FLEXSERV_PACK_SELECTION_SCRATCH/packs.json" "$root/runtime/packs.json"
+)
+verify_bundle() (
+    # Legacy bundles retain their extracted Pack; new bundles pin a release tag.
+    set -e
+    local zip="$FLEXSERV_JOB_DIR/pack/flexserv-capability-pack.zip" pack="$FLEXSERV_JOB_DIR/runtime/pack" name
     require_commands sha256sum unzip zipinfo cmp find sort awk
     verify_inventory "$FLEXSERV_JOB_DIR" "$FLEXSERV_JOB_DIR/checksums.sha256"
     mkdir -p "$FLEXSERV_JOB_DIR/tmp" "$FLEXSERV_JOB_DIR/runtime"
-    scratch=$(mktemp -d "$FLEXSERV_JOB_DIR/tmp/pack-check.XXXXXX")
-    trap 'rm -rf -- "$scratch"' EXIT
-    zipinfo -1 "$zip" > "$scratch/members"
-    [[ -z $(LC_ALL=C sort "$scratch/members" | uniq -d) ]] || { echo 'Duplicate Pack ZIP member.' >&2; exit 1; }
+    if awk 'substr($0,67)=="pack-tag.txt" {found=1} END {exit !found}' "$FLEXSERV_JOB_DIR/checksums.sha256"; then
+        [[ -n ${FCS_BIN:-} ]] || { echo 'Capability Server is required to prepare Packs.' >&2; exit 1; }
+        prepare_selected_packs
+        exit
+    fi
+    awk 'substr($0,67)=="pack/flexserv-capability-pack.zip" {found=1} END {exit !found}' "$FLEXSERV_JOB_DIR/checksums.sha256" || {
+        echo 'Bundle has no verified Pack source.' >&2; exit 1;
+    }
+    FLEXSERV_PACK_CHECK_SCRATCH=$(mktemp -d "$FLEXSERV_JOB_DIR/tmp/pack-check.XXXXXX")
+    trap 'rm -rf -- "$FLEXSERV_PACK_CHECK_SCRATCH"' EXIT
+    zipinfo -1 "$zip" > "$FLEXSERV_PACK_CHECK_SCRATCH/members"
+    [[ -z $(LC_ALL=C sort "$FLEXSERV_PACK_CHECK_SCRATCH/members" | uniq -d) ]] || { echo 'Duplicate Pack ZIP member.' >&2; exit 1; }
     while IFS= read -r name; do
         safe_relative_path "${name%/}" || { echo 'Unsafe Pack ZIP member.' >&2; exit 1; }
-    done < "$scratch/members"
+    done < "$FLEXSERV_PACK_CHECK_SCRATCH/members"
     zipinfo -l "$zip" | awk '$1 ~ /^l/ {bad=1} END {exit bad}' || { echo 'Linked Pack ZIP member.' >&2; exit 1; }
     unzip -l "$zip" | awk '$2 ~ /-/ && $3 ~ /:/ {count++; bytes+=$1} END {exit(count==0 || count>4096 || bytes>67108864)}' || {
         echo 'Pack exceeds its file or byte limit.' >&2; exit 1;
     }
-    unzip -p "$zip" checksums.sha256 > "$scratch/inventory"
+    unzip -p "$zip" checksums.sha256 > "$FLEXSERV_PACK_CHECK_SCRATCH/inventory"
     if [[ ! -e "$pack" && ! -L "$pack" ]]; then
-        mkdir "$scratch/pack"
-        unzip -q "$zip" -d "$scratch/pack"
-        check_pack_tree "$scratch/pack" "$scratch/inventory" "$scratch"
-        mv "$scratch/pack" "$pack"
+        mkdir "$FLEXSERV_PACK_CHECK_SCRATCH/pack"
+        unzip -q "$zip" -d "$FLEXSERV_PACK_CHECK_SCRATCH/pack"
+        check_pack_tree "$FLEXSERV_PACK_CHECK_SCRATCH/pack" "$FLEXSERV_PACK_CHECK_SCRATCH/inventory" "$FLEXSERV_PACK_CHECK_SCRATCH"
+        mv "$FLEXSERV_PACK_CHECK_SCRATCH/pack" "$pack"
     else
-        check_pack_tree "$pack" "$scratch/inventory" "$scratch"
+        check_pack_tree "$pack" "$FLEXSERV_PACK_CHECK_SCRATCH/inventory" "$FLEXSERV_PACK_CHECK_SCRATCH"
     fi
 )
 ensure_uv() {
@@ -176,10 +214,22 @@ install_flexserv() {
     mkdir -p "$FLEXSERV_JOB_DIR/tmp" "$FLEXSERV_JOB_DIR/runtime" "$FLEXSERV_JOB_DIR/logs" "$FLEXSERV_JOB_DIR/reports"
     mkdir -p "$PRI_MODEL_REPO"
     [[ -d "$PUB_MODEL_REPO" ]] || mkdir -p "$PUB_MODEL_REPO"
-    select_arch; verify_bundle
+    select_arch
+    # Verify the FCS executable before using it to validate external Pack ZIPs.
+    verify_inventory "$FLEXSERV_JOB_DIR" "$FLEXSERV_JOB_DIR/checksums.sha256"
     GATEWAY_BIN="$FLEXSERV_JOB_DIR/bin/flexserv-gateway-$ARCH.bin"
     FCS_BIN="$FLEXSERV_JOB_DIR/bin/flexserv-capability-server-$ARCH.bin"
+    awk -v gateway="bin/flexserv-gateway-$ARCH.bin" -v fcs="bin/flexserv-capability-server-$ARCH.bin" '
+        substr($0,67)==gateway {a=1} substr($0,67)==fcs {b=1} END {exit !(a && b)}' "$FLEXSERV_JOB_DIR/checksums.sha256" || {
+        echo 'Bundle inventory must cover both selected executables.' >&2; return 1;
+    }
     chmod u+x "$GATEWAY_BIN" "$FCS_BIN"
+    verify_bundle
+    if awk 'substr($0,67)=="pack-tag.txt" {found=1} END {exit !found}' "$FLEXSERV_JOB_DIR/checksums.sha256"; then
+        export FLEXSERV_PACK_MODE=multi
+    else
+        export FLEXSERV_PACK_MODE=legacy
+    fi
     "$GATEWAY_BIN" --version; "$FCS_BIN" --export-native-contracts >/dev/null
     export GATEWAY_BIN FCS_BIN
     if [[ "$FLEXSERV_PREPARE_BACKENDS" == 1 ]]; then ensure_backend_environments; fi

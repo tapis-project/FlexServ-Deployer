@@ -101,15 +101,18 @@ def assemble_fixture(root, args):
     bundle = root / 'job'
     shutil.copytree(ROOT / 'hpc_archive', bundle)
     (bundle / 'bin').mkdir()
-    (bundle / 'pack').mkdir()
     for arch in ('amd64', 'arm64'):
         for component, source in [('flexserv-gateway', args.gateway), ('flexserv-capability-server', args.server)]:
             shutil.copyfile(source, bundle / f'bin/{component}-{arch}.bin')
-    shutil.copyfile(args.pack, bundle / 'pack/flexserv-capability-pack.zip')
+    if len(args.pack) == 1:
+        (bundle / 'pack').mkdir()
+        shutil.copyfile(args.pack[0], bundle / 'pack/flexserv-capability-pack.zip')
+    else:
+        (bundle / 'pack-tag.txt').write_text('pack-v1.5.0-alpha-2\n')
     metadata = {'fixture_only': True, 'actual_platform': platform.platform(),
         'linux_labels_are_fixture_aliases': platform.system() != 'Linux',
         'gateway_sha256': digest(args.gateway), 'fcs_sha256': digest(args.server),
-        'pack_sha256': digest(args.pack)}
+        'pack_sha256s': [digest(pack) for pack in args.pack]}
     (bundle / 'BUILD.json').write_text(json.dumps(metadata, indent=2) + '\n')
     inventory = ''.join(f'{digest(path)}  {path.relative_to(bundle).as_posix()}\n'
         for path in sorted(bundle.rglob('*')) if path.is_file())
@@ -212,6 +215,10 @@ async def scenario(args):
             LOCAL_PORT=str(selected_port), GATEWAY_BIND_HOST='0.0.0.0',NODE_HOSTNAME_DOMAIN='127.0.0.1',
             RAND_TOKEN=TOKEN, FLEXSERV_ADMIN_SECRET=ADMIN, ALPHA_SCRIPT_FCS_WITNESS=str(witness),
             STARTUP_TIMEOUT_SECONDS='35', RUN_SECONDS='180')
+        if len(args.pack) > 1:
+            environment['PACK_TO_LOAD'] = ';'.join(map(str, args.pack))
+        else:
+            environment.pop('PACK_TO_LOAD', None)
         private_repo=root/'explicit-private';public_repo=root/'explicit-public';public_repo.mkdir(mode=0o700)
         environment.update(PRI_MODEL_REPO=str(private_repo),PUB_MODEL_REPO=str(public_repo),
             ENABLE_HTTPS='1',FLEXSERV_TRUST_REMOTE_CODE='true',TLS_CERT='/stale/cert',TLS_KEY='/stale/key')
@@ -265,8 +272,10 @@ async def scenario(args):
                 assert len(gateway_ids) == 1 and fcs_pid in candidates, identities
                 identities = {pid: identities[pid] for pid in [gateway_ids[0], fcs_pid]}
                 import zipfile
-                with zipfile.ZipFile(args.pack) as archive:
-                    tools = [yaml.safe_load(archive.read(name)) for name in archive.namelist() if name.endswith('/tool.yaml')]
+                tools = []
+                for pack in args.pack:
+                    with zipfile.ZipFile(pack) as archive:
+                        tools.extend(yaml.safe_load(archive.read(name)) for name in archive.namelist() if name.endswith('/tool.yaml'))
                 assert len(tools) == 65, len(tools)
                 async with connect_fixture(url + '/mcp', context) as client:
                     names = {tool.name for tool in await discover_tools(client)}
@@ -275,7 +284,7 @@ async def scenario(args):
                     assert not any(name.startswith('local.') for name in names)
                     result = await client.call_tool('gateway.operations.list', {})
                     assert not result.is_error and result.structured_content['operations'] == [], result
-                checks.append('full 65-tool merged Pack loads without Tapis credentials and public MCP authenticates/discovers both namespaces')
+                checks.append('the 65-tool catalog loads without Tapis credentials and public MCP authenticates/discovers both namespaces')
                 async with aiohttp.ClientSession(trust_env=False) as http:
                     async with http.get(url + '/healthz/ready',ssl=context) as response:
                         assert response.status == 200, await response.text()
@@ -329,7 +338,7 @@ async def main(args):
         'fixture_only_linux_labels': platform.system() != 'Linux', 'real_slurm': 'NOT RUN',
         'real_gpu_vllm': 'NOT RUN', 'linux_release_abi': 'NOT TESTED BY THIS FIXTURE',
         'binaries': {name: {'path': str(getattr(args, name)), 'sha256': digest(getattr(args, name))}
-                     for name in ('gateway', 'server')}, 'pack_sha256': digest(args.pack), 'scenario': await scenario(args)}
+                     for name in ('gateway', 'server')}, 'pack_sha256s': [digest(pack) for pack in args.pack], 'scenario': await scenario(args)}
     assert not Path(result['scenario']['temporary_job_removed_on_return']).exists()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + '\n')
@@ -341,9 +350,11 @@ if __name__ == '__main__':
     parser.add_argument('--https', action='store_true', help='Exercise TAP public HTTPS; internal mTLS remains mandatory')
     parser.add_argument('--gateway', type=Path, required=True)
     parser.add_argument('--server', type=Path, required=True)
-    parser.add_argument('--pack', type=Path, required=True)
+    parser.add_argument('--pack', type=Path, action='append', required=True,
+                        help='One legacy merged ZIP or multiple separate local ZIPs')
     parser.add_argument('--output', type=Path, required=True)
     options = parser.parse_args()
-    for name in ('gateway', 'server', 'pack'):
+    for name in ('gateway', 'server'):
         setattr(options, name, getattr(options, name).resolve(strict=True))
+    options.pack = [pack.resolve(strict=True) for pack in options.pack]
     asyncio.run(main(options))
