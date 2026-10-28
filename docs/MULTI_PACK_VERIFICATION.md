@@ -13,8 +13,8 @@ the multi-Pack changes; the previously published Alpha 44 archive predates them.
   inventory and archive pins, mTLS, discovery, service routing, and cleanup.
 - The real Bash entry passed seven local checks in both public HTTP and HTTPS
   modes with both ZIPs. Each retained internal Gateway/FCS mTLS.
-- FCS library tests passed 272/272 with local loopback access enabled. The Pack
-  repository's six packaging tests passed.
+- Gateway and FCS library tests passed 281/281 and 272/272, respectively, with
+  local loopback access enabled. The Pack repository's six packaging tests passed.
 
 The local fixture uses simulated Slurm and native macOS executables. It does not
 prove the Linux ABI, real TACC/OSC filesystem permissions, a Slurm allocation,
