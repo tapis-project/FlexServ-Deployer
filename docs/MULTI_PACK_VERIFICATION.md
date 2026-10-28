@@ -15,6 +15,9 @@ the multi-Pack changes; the previously published Alpha 44 archive predates them.
   modes with both ZIPs. Each retained internal Gateway/FCS mTLS.
 - Gateway and FCS library tests passed 281/281 and 272/272, respectively, with
   local loopback access enabled. The Pack repository's six packaging tests passed.
+- Existing real FCS network and authentication fixtures passed 22 and 64
+  checks. Tapis contracts, vLLM contracts and archive packaging passed 3, 13
+  and 2 tests, respectively.
 
 The local fixture uses simulated Slurm and native macOS executables. It does not
 prove the Linux ABI, real TACC/OSC filesystem permissions, a Slurm allocation,
