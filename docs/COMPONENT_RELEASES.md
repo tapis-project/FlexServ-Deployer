@@ -17,6 +17,13 @@ compiles binaries. Manual dispatch requires an explicit Pack release tag. The
 selected tag is stored in `pack-tag.txt`; no Pack ZIP is embedded. Gateway and
 FCS tags remain optional selections. Branch pushes run checks only.
 
+For the first multi-ZIP release, select `gateway-1.5.0-alpha-2` and
+`fcs-1.5.0-alpha-2` explicitly. The earlier Gateway alpha-1 release does not
+enforce the new protected per-Pack ZIP arguments. The assembler verifies asset
+integrity and the FCS registry, but does not yet prove Gateway/FCS protocol
+compatibility for every arbitrary combination of release tags. Check any
+different pair against its release and integration evidence before publishing.
+
 Every CI download must match both the release inventory and GitHub's asset
 digest. Binary source sidecars must match the selected tag commit, and the two
 architectures must report the same version. CI validates both standalone Packs
