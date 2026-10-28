@@ -154,17 +154,14 @@ BUILD metadata, a Tapis environment file, or a chat message.
 
 ## Verification record
 
-For the subsequent independent multi-Pack delivery, see
-[multi-Pack verification](MULTI_PACK_VERIFICATION.md). The Alpha 44 archive
-described below predates that change and remains available for legacy jobs.
+For the current independent multi-Pack delivery and the refreshed Alpha 44
+archive, see [multi-Pack verification](MULTI_PACK_VERIFICATION.md).
 
 See [Alpha verification](../recordings/alpha-2026-10-25/verification.json).
-Local macOS fixtures and native Linux Actions builds are complete.
-[Alpha 44](https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-44)
-is published; its downloaded archive, all 19 files, ELF identities, Pack checksums
-and source metadata pass verification. Earlier failed attempts are retained in
-the verification record. Real site access and physical hardware remain separate,
-unexecuted acceptance gates.
+That earlier record covers the original Alpha 44 assembly and retains earlier
+failed attempts. The fixed [Alpha 44 URL](https://github.com/tapis-project/FlexServ-Deployer/releases/tag/tapis-flexserv-1.5.0-alpha-44)
+now serves the multi-Pack assembly. Real site access and physical hardware remain
+separate, unexecuted acceptance gates.
 The original ignored site.env and unrelated NewReleaseSpec.md are preserved.
 
 ## Tapis application parameters

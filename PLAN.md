@@ -7,7 +7,7 @@
 - [x] Prepare verified ZIPs once on the head node through the FCS command and
   bind ordered paths and checksum pins into protected Slurm/host configuration.
 - [x] Preserve old self-contained bundle and single-Pack startup compatibility.
-- [ ] Prove offline fixtures, Bash syntax, workflow lint, local ZIP fallback,
+- [x] Prove offline fixtures, Bash syntax, workflow lint, local ZIP fallback,
   cross-pack loading and the native release chain; record unavailable site tests.
 
 ## Stable Alpha App URL and persistent state (2026-10-25)
