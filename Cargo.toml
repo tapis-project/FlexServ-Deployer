@@ -17,6 +17,11 @@ name = "flexserv-deployer"
 path = "src/bin/flexserv-deployer.rs"
 
 [dependencies]
+actix-rt = {
+    version = "2.15.0",
+    default-features = false,
+    features = ["net", "signal"]
+}
 actix-web = { version = "4.15.0" }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 reqwest = { version = "0.13.5", default-features = false, features = [
@@ -37,4 +42,3 @@ sha2 = "0.11.0"
 tapis-pods = "=0.4.4"
 tapis-jobs = "0.4.4"
 [dev-dependencies]
-actix-rt = "2.15.0"
