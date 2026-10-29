@@ -9,6 +9,7 @@ use flexserv_deployer::{
     FlexServInstance, FlexServPodDeployment, HpcDeploymentOptions, PodDeploymentOptions,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tapis_jobs::apis::configuration;
@@ -67,13 +68,13 @@ impl BackendKind {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Save a Tapis JWT token for future commands.
-    #[command(alias = "m")]
+    #[command(visible_alias = "m")]
     Manage(ManageCommand),
     /// Manage Tapis Pod deployments.
-    #[command(alias = "p", alias = "pods", alias = "ps")]
+    #[command(visible_alias = "p", visible_alias = "pods", visible_alias = "ps")]
     Pod(PodCommand),
     /// Manage Tapis Jobs deployments.
-    #[command(alias = "j", alias = "jobs", alias = "js")]
+    #[command(visible_alias = "j", visible_alias = "jobs", visible_alias = "js")]
     Job(JobCommand),
 }
 
@@ -86,41 +87,58 @@ struct ManageCommand {
 #[derive(Debug, Subcommand)]
 enum ManageSubcommand {
     /// Save a Tapis JWT token for future commands.
-    #[command(alias = "auth", alias = "login")]
+    #[command(visible_alias = "auth", visible_alias = "login")]
     Authenticate(AuthenticateArgs),
     /// Save a HuggingFace token for future commands.
-    #[command(alias = "hf")]
+    #[command(visible_alias = "hf")]
     HFToken(HFTokenArgs),
     /// Set the output format for command results.
     Output(OutputFormatArgs),
     /// Show saved and effective CLI configuration.
-    #[command(alias = "config", alias = "whoami")]
+    #[command(visible_alias = "config", visible_alias = "whoami")]
     Show,
 }
 
 #[derive(Debug, Args)]
 struct AuthenticateArgs {
     /// Tapis JWT token to save for later CLI calls.
-    #[arg(value_name = "JWT_TOKEN", hide_env_values = true)]
-    token: String,
+    #[arg(
+        value_name = "JWT_TOKEN",
+        hide_env_values = true,
+        value_parser = parse_non_empty_token,
+        required_unless_present = "unset"
+    )]
+    token: Option<String>,
+    /// Remove the saved Tapis token (does not modify TAPIS_TOKEN).
+    #[arg(long, conflicts_with = "token")]
+    unset: bool,
 }
 
 #[derive(Debug, Args)]
 struct HFTokenArgs {
     /// HuggingFace token to save for later CLI calls.
-    #[arg(value_name = "HF_TOKEN", hide_env_values = true)]
-    token: String,
+    #[arg(
+        value_name = "HF_TOKEN",
+        hide_env_values = true,
+        value_parser = parse_non_empty_token,
+        required_unless_present = "unset"
+    )]
+    token: Option<String>,
+    /// Remove the saved Hugging Face token (does not modify HF_TOKEN).
+    #[arg(long, conflicts_with = "token")]
+    unset: bool,
 }
 
 #[derive(Debug, Args)]
 struct OutputFormatArgs {
-    /// Output format to use for command results.
+    /// Output format to use for command results (text or json).
     #[arg(
+        value_enum,
         value_name = "OUTPUT_FORMAT",
         default_value = "text",
         hide_env_values = true
     )]
-    output: String,
+    output: OutputFormat,
 }
 
 #[derive(Debug, Args)]
@@ -133,7 +151,7 @@ struct PodCommand {
 enum PodSubcommand {
     /// Create a FlexServ pod and backing volume.
     Create(PodCreateArgs),
-    /// List pods visible to the authenticated Tapis user.
+    /// List FlexServ pods visible to the authenticated Tapis user.
     List(ListArgs),
     /// Show current pod state.
     Monitor(PodIdArgs),
@@ -142,7 +160,7 @@ enum PodSubcommand {
     /// Request pod stop.
     Stop(PodIdArgs),
     /// Delete the pod.
-    #[command(alias = "delete", alias = "rm")]
+    #[command(visible_alias = "delete", visible_alias = "rm")]
     Terminate(PodIdArgs),
 }
 
@@ -206,16 +224,16 @@ struct JobCommand {
 enum JobSubcommand {
     /// Submit a FlexServ HPC job.
     Create(JobCreateArgs),
-    /// List jobs visible to the authenticated Tapis user.
+    /// List FlexServ jobs visible to the authenticated Tapis user.
     List(ListArgs),
     /// Show current job state.
-    #[command(alias = "status", alias = "view")]
+    #[command(visible_alias = "status", visible_alias = "view")]
     Monitor(JobIdArgs),
     /// Resubmit a previous job.
-    #[command(alias = "resubmit")]
+    #[command(visible_alias = "resubmit")]
     Start(JobIdArgs),
     /// Cancel a job.
-    #[command(alias = "stop", alias = "terminate")]
+    #[command(visible_alias = "stop", visible_alias = "terminate")]
     Cancel(JobIdArgs),
 }
 
@@ -255,6 +273,7 @@ struct JobIdArgs {
 
 #[derive(Debug, Args, Clone)]
 struct ListArgs {
+    /// Maximum number of FlexServ resources to print. Negative values print all.
     #[arg(long, default_value_t = 25)]
     limit: i32,
 }
@@ -302,30 +321,43 @@ fn manage(command: ManageCommand) -> CliResult<()> {
             // Write the updated config to disk.
             // Print a short success message and the next useful command.
             let mut saved_config = read_saved_config()?.unwrap_or_default();
-            saved_config.tapis_token = Some(_args.token);
+            saved_config.tapis_token = _args.token;
 
             write_saved_config(&saved_config)?;
 
-            print_next_steps()
+            if _args.unset {
+                println!("Saved Tapis token unset.");
+                if env_var_if_set("TAPIS_TOKEN").is_some() {
+                    println!("TAPIS_TOKEN is still set and remains the effective token.");
+                }
+                Ok(())
+            } else {
+                print_next_steps()
+            }
         }
         ManageSubcommand::HFToken(_args) => {
             // Read the existing SavedConfig, or start with SavedConfig::default().
             // Store `_args.token` in `config.hf_token`.
             // Write the updated config back to disk.
             let mut saved_config = read_saved_config()?.unwrap_or_default();
-            saved_config.hf_token = Some(_args.token);
+            saved_config.hf_token = _args.token;
 
-            write_saved_config(&saved_config)
+            write_saved_config(&saved_config)?;
+
+            if _args.unset {
+                println!("Saved Hugging Face token unset.");
+                if env_var_if_set("HF_TOKEN").is_some() {
+                    println!("HF_TOKEN is still set and remains the effective token.");
+                }
+            }
+            Ok(())
         }
         ManageSubcommand::Output(_args) => {
             // Parse `_args.output` with `OutputFormat::from_str`.
             // Store the parsed value in `config.output`.
             // Persist the config.
             let mut saved_config = read_saved_config()?.unwrap_or_default();
-            saved_config.output = Some(
-                OutputFormat::from_str(&_args.output, true)
-                    .map_err(|e| anyhow!("Invalid output format: {e}"))?,
-            );
+            saved_config.output = Some(_args.output);
 
             write_saved_config(&saved_config)
         }
@@ -786,14 +818,14 @@ fn print_config() -> CliResult<()> {
         .map(|o| output_name(o).to_string())
         .unwrap_or_else(|_| "unavailable".to_string());
 
-    let tapis_token_value = tapis_token();
+    let tapis_token_value = tapis_token().ok();
     let token_expiration = tapis_token_value
         .as_ref()
-        .ok()
         .and_then(|token| token_expiration_status(token).ok())
         .unwrap_or_else(|| "unavailable".to_string());
-    let tapis_tkn = tapis_token_value.unwrap_or_else(|_| "not set".to_string());
-    let hf_tkn = effective_hf_token()?.unwrap_or_else(|| "not set".to_string());
+    let tapis_tkn = token_status(tapis_token_value.as_deref());
+    let hf_token_value = effective_hf_token()?;
+    let hf_tkn = token_status(hf_token_value.as_deref());
 
     let config_path = auth_config_path()
         .map(|p| p.display().to_string())
@@ -802,13 +834,31 @@ fn print_config() -> CliResult<()> {
     println!("FlexServ Deployer configuration");
     println!("  tenant_url:   {tenant_url}");
     println!("  tapis_user:   {tapis_user}");
-    println!("  output:       {output}");
+    println!("  output:       {output} (available: text, json)");
     println!("  tapis_token:  {tapis_tkn}");
     println!("  hf_token:     {hf_tkn}");
     println!("  config_file:  {config_path}");
     println!("  expires:      {token_expiration}");
 
     Ok(())
+}
+
+fn token_status(token: Option<&str>) -> String {
+    match token {
+        Some(token) => {
+            let prefix = token.chars().take(6).collect::<String>();
+            format!("set ({prefix}...)")
+        }
+        None => "not set".to_string(),
+    }
+}
+
+fn parse_non_empty_token(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        Err("token cannot be empty; use --unset to remove the saved token".to_string())
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 fn print_next_steps() -> CliResult<()> {
@@ -842,15 +892,12 @@ async fn get_all_pods() -> CliResult<Vec<PodResponseModel>> {
     Ok(response.result)
 }
 
-async fn get_jobs(api_limit: Option<i32>) -> CliResult<Vec<JobListDto>> {
-    // Build Tapis Jobs config.
-    // Call `jobs_api::get_job_list`.
-
+async fn get_jobs_page(limit: i32, skip: i32) -> CliResult<Vec<JobListDto>> {
     let config = jobs_config()?;
     let response = jobs_api::get_job_list(
         &config,
-        api_limit,
-        None,
+        Some(limit),
+        Some(skip),
         None,
         Some("created(desc)"),
         None,
@@ -862,10 +909,67 @@ async fn get_jobs(api_limit: Option<i32>) -> CliResult<Vec<JobListDto>> {
     Ok(response.result.unwrap_or_default())
 }
 
+async fn get_flexserv_jobs(limit: i32) -> CliResult<Vec<JobListDto>> {
+    // Tapis list endpoints document 100 as their default page size.
+    const PAGE_SIZE: i32 = 100;
+
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let requested = (limit >= 0).then_some(limit as usize);
+    let mut jobs = Vec::new();
+    let mut seen_uuids = HashSet::new();
+    let mut skip = 0;
+
+    loop {
+        let page = get_jobs_page(PAGE_SIZE, skip).await?;
+        let page_len = page.len();
+        if page_len == 0 {
+            break;
+        }
+
+        let mut new_rows = 0;
+        for job in page {
+            let is_new = job
+                .uuid
+                .as_ref()
+                .map(|uuid| seen_uuids.insert(uuid.clone()))
+                .unwrap_or(true);
+            if !is_new {
+                continue;
+            }
+
+            new_rows += 1;
+            if is_flexserv_job(&job) {
+                jobs.push(job);
+                if requested.is_some_and(|requested| jobs.len() >= requested) {
+                    jobs.truncate(requested.unwrap_or_default());
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if page_len < PAGE_SIZE as usize || new_rows == 0 {
+            break;
+        }
+        skip += page_len as i32;
+    }
+
+    Ok(jobs)
+}
+
 async fn list_pods(limit: i32) -> CliResult<()> {
     // Limit rows.
     // Print JSON or a compact table.
-    let pods = limited(get_all_pods().await?, limit);
+    let pods = limited(
+        get_all_pods()
+            .await?
+            .into_iter()
+            .filter(is_flexserv_pod)
+            .collect(),
+        limit,
+    );
 
     if matches!(effective_output()?, OutputFormat::Json) {
         let body = serde_json::to_string_pretty(&pods).context("failed to serialize pods list")?;
@@ -891,12 +995,9 @@ async fn list_pods(limit: i32) -> CliResult<()> {
 }
 
 async fn list_jobs(limit: i32) -> CliResult<()> {
-    // Build Tapis Jobs config.
-    // Call `jobs_api::get_job_list`.
-    // Limit/order rows as needed.
+    // Fetch all pages needed to satisfy the requested FlexServ row limit.
     // Print JSON or a compact table.
-    let api_limit = if limit < 0 { None } else { Some(limit) };
-    let jobs = limited(get_jobs(api_limit).await?, limit);
+    let jobs = get_flexserv_jobs(limit).await?;
 
     if matches!(effective_output()?, OutputFormat::Json) {
         let body = serde_json::to_string_pretty(&jobs).context("failed to serialize jobs list")?;
@@ -927,9 +1028,13 @@ async fn list_jobs(limit: i32) -> CliResult<()> {
 }
 
 async fn resolve_pod_id(id_or_prefix: &str) -> CliResult<String> {
-    // List pods visible to the user.
+    // List FlexServ pods visible to the user.
     // Feed pod ids into `resolve_unique_prefix`.
-    let pods = get_all_pods().await?;
+    let pods: Vec<_> = get_all_pods()
+        .await?
+        .into_iter()
+        .filter(is_flexserv_pod)
+        .collect();
 
     resolve_unique_prefix(
         id_or_prefix,
@@ -939,9 +1044,9 @@ async fn resolve_pod_id(id_or_prefix: &str) -> CliResult<String> {
 }
 
 async fn resolve_job_id(id_or_prefix: &str) -> CliResult<String> {
-    // List recent jobs visible to the user.
+    // List FlexServ jobs visible to the user.
     // Feed job UUIDs into `resolve_unique_prefix`.
-    let jobs = get_jobs(Some(-1)).await?;
+    let jobs = get_flexserv_jobs(-1).await?;
 
     resolve_unique_prefix(
         id_or_prefix,
@@ -1063,6 +1168,29 @@ fn job_status(job: &JobListDto) -> Option<String> {
         }
         .to_string()
     })
+}
+
+fn contains_flexserv(value: &str) -> bool {
+    value.to_ascii_lowercase().contains("flexserv")
+}
+
+fn is_flexserv_job(job: &JobListDto) -> bool {
+    job.app_id.as_deref().is_some_and(contains_flexserv)
+        || job.name.as_deref().is_some_and(contains_flexserv)
+}
+
+fn is_flexserv_pod(pod: &PodResponseModel) -> bool {
+    pod.description.as_deref().is_some_and(contains_flexserv)
+        || pod.image.as_deref().is_some_and(contains_flexserv)
+        || pod
+            .environment_variables
+            .as_ref()
+            .is_some_and(|env| env.contains_key("FLEXSERV_PORT"))
+        || pod
+            .command
+            .as_ref()
+            .and_then(|command| command.as_ref())
+            .is_some_and(|command| command.iter().any(|part| contains_flexserv(part)))
 }
 
 fn limited<T>(items: Vec<T>, limit: i32) -> Vec<T> {

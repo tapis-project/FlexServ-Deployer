@@ -235,10 +235,15 @@ impl FlexServHPCDeployment {
         None
     }
 
-    async fn fetch_running_access_from_logs(
+    fn access_fetch_attempts(status: Option<&str>) -> usize {
+        if status == Some("RUNNING") { 5 } else { 1 }
+    }
+
+    async fn fetch_access_information(
         &self,
         config: &configuration::Configuration,
         job: &models::Job,
+        max_attempts: usize,
     ) -> Option<(String, String)> {
         let exec_system_id = job.exec_system_id.as_deref()?;
         let exec_output_dir = job.exec_system_output_dir.as_deref()?;
@@ -253,8 +258,10 @@ impl FlexServHPCDeployment {
             base, exec_system_id, normalized_path
         );
 
-        // Single-line file, so no pagination; retry since it may not be written yet.
-        for _ in 1..=5 {
+        // The file is a single line, so it does not need pagination. A running job may still be
+        // writing it, while other states only need one lookup.
+        let max_attempts = max_attempts.max(1);
+        for attempt in 0..max_attempts {
             let mut req_builder = config
                 .client
                 .request(reqwest::Method::GET, endpoint.as_str());
@@ -274,23 +281,21 @@ impl FlexServHPCDeployment {
                     return Some(access);
                 }
             }
-            sleep(Duration::from_secs(5)).await;
+            if attempt + 1 < max_attempts {
+                sleep(Duration::from_secs(5)).await;
+            }
         }
 
         None
     }
 
-    async fn running_connection_fields(
+    async fn connection_fields(
         &self,
         config: &configuration::Configuration,
         status: Option<&str>,
         job_uuid: &str,
         job: Option<&models::Job>,
     ) -> (Option<String>, Option<String>) {
-        if status != Some("RUNNING") {
-            return (None, None);
-        }
-
         let mut full_job = job.cloned();
         let needs_full_job = full_job
             .as_ref()
@@ -303,9 +308,10 @@ impl FlexServHPCDeployment {
             }
         }
 
-        if let Some(job_for_logs) = full_job.as_ref() {
+        if let Some(job_for_access) = full_job.as_ref() {
+            let max_attempts = Self::access_fetch_attempts(status);
             if let Some((hpc_url, flexserv_token)) = self
-                .fetch_running_access_from_logs(config, job_for_logs)
+                .fetch_access_information(config, job_for_access, max_attempts)
                 .await
             {
                 return (Some(hpc_url), Some(flexserv_token));
@@ -331,7 +337,7 @@ impl FlexServDeployment for FlexServHPCDeployment {
         self.job_uuid = Some(job_uuid.clone());
         let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
         let (hpc_url, flexserv_token) = self
-            .running_connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
+            .connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
             .await;
 
         Ok(DeploymentResult::HPCResult {
@@ -357,7 +363,7 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .unwrap_or_else(|| prior_uuid.to_string());
         let status = job.as_ref().and_then(|j| Self::job_status_from_record(j));
         let (hpc_url, flexserv_token) = self
-            .running_connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
+            .connection_fields(&config, status.as_deref(), &job_uuid, job.as_ref())
             .await;
         Ok(DeploymentResult::HPCResult {
             job_uuid: job_uuid.clone(),
@@ -399,7 +405,7 @@ impl FlexServDeployment for FlexServHPCDeployment {
             .map_err(Self::map_jobs_error)?;
         let status = status_resp.result.as_ref().and_then(|r| r.status.clone());
         let (hpc_url, flexserv_token) = self
-            .running_connection_fields(
+            .connection_fields(
                 &config,
                 status.as_deref(),
                 job_uuid,

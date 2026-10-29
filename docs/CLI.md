@@ -70,15 +70,16 @@ Saved config fields:
 
 ```json
 {
-  "tapis_token": "...",
-  "hf_token": "...",
+  "tapis_token": null,
+  "hf_token": null,
   "output": "text"
 }
 ```
 
-Tokens are stored as plain JSON values. `manage show` currently does not mask
-them; it prints raw token strings when they are available. Treat the config file
-and `manage show` output as sensitive.
+Both tokens default to `null`. Tokens that are set are stored as plain JSON
+values, so treat the config file as sensitive. `manage show` only displays the
+first six characters, for example `set (sdfsdf....)`, so you can identify the
+active token without copying or exposing the full value.
 
 The Tapis username is decoded from the JWT payload claim `tapis/username`.
 The Tapis tenant URL is decoded from `tapis/tenant_id` as
@@ -107,6 +108,13 @@ Example:
 flexserv-deployer manage authenticate <JWT_TOKEN>
 ```
 
+Unset the saved token (an existing `TAPIS_TOKEN` environment variable remains
+effective):
+
+```bash
+flexserv-deployer manage authenticate --unset
+```
+
 ### `manage hf-token <HF_TOKEN>`
 
 Alias: `manage hf`
@@ -121,6 +129,13 @@ Example:
 
 ```bash
 flexserv-deployer manage hf-token <HF_TOKEN>
+```
+
+Unset the saved token (an existing `HF_TOKEN` environment variable remains
+effective):
+
+```bash
+flexserv-deployer manage hf-token --unset
 ```
 
 ### `manage output [OUTPUT_FORMAT]`
@@ -220,7 +235,9 @@ flexserv-deployer \
 
 ### `pod list`
 
-Lists pods visible to the authenticated Tapis user.
+Lists FlexServ pods visible to the authenticated Tapis user. A pod is treated as
+FlexServ-managed when its description, image, environment, or command contains a
+FlexServ marker.
 
 Options:
 
@@ -228,13 +245,16 @@ Options:
 | --- | --- | --- |
 | `--limit <N>` | Maximum number of rows to print. Negative values print all rows. | `25` |
 
+The command may print fewer rows when fewer matching FlexServ pods exist.
+
 Implementation:
 
 1. Builds a `TapisPods` client with `pods_client()`.
 2. Calls `client.pods.list_pods().await`.
-3. Applies the limit locally.
-4. In JSON mode, pretty-prints the raw SDK models.
-5. In text mode, prints `POD ID`, `DESCRIPTION`, `STATUS`, `URL`, and `IMAGE`.
+3. Filters the response to FlexServ pods.
+4. Applies the limit locally, after filtering.
+5. In JSON mode, pretty-prints the raw SDK models.
+6. In text mode, prints `POD ID`, `MODEL_NAME`, `STATUS`, and `URL`.
 
 Example:
 
@@ -371,7 +391,9 @@ Example:
 
 ### `job list`
 
-Lists recent jobs visible to the authenticated Tapis user.
+Lists recent FlexServ jobs visible to the authenticated Tapis user. A job is
+treated as FlexServ-managed when its app id or job name contains `flexserv`
+(case-insensitive).
 
 Options:
 
@@ -379,16 +401,17 @@ Options:
 | --- | --- | --- |
 | `--limit <N>` | Maximum number of rows to print. Negative values print all rows. | `25` |
 
+The command may print fewer rows when fewer matching FlexServ jobs exist.
+
 Implementation:
 
 1. Builds a Tapis Jobs `Configuration`.
-2. Calls `jobs_api::get_job_list` with:
-   - no API-side limit when `--limit` is negative
-   - otherwise an API-side limit matching `--limit`
-   - order `created(desc)`
-3. Applies the requested local limit.
-4. In JSON mode, pretty-prints the raw SDK DTOs.
-5. In text mode, prints `JOB UUID`, `NAME`, and `STATUS`.
+2. Calls `jobs_api::get_job_list` in 100-row pages, ordered by `created(desc)`.
+3. Filters each page to FlexServ jobs and continues paging until the requested
+   number of FlexServ rows is found or the API is exhausted.
+4. Applies the requested local limit.
+5. In JSON mode, pretty-prints the raw SDK DTOs.
+6. In text mode, prints `JOB UUID`, `NAME`, `STATUS`, `SUBMITTED`, and `SYSTEM`.
 
 Example:
 
