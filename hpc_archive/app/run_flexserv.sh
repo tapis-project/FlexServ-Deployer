@@ -1,8 +1,7 @@
 #!/bin/bash
 # FlexServ Runner Script for TACC HPC Environment
-# Supports:
-#   1) normal single-node single-process mode through the gateway
-#   2) optional multi-node distributed mode if explicitly enabled
+# Supports normal single-node single-process mode through the gateway.
+# The multi-node distributed launch path is currently unsupported.
 
 set -e
 
@@ -20,14 +19,15 @@ print_usage() {
     echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
     echo "  model_name / --model-name       Default FlexServ private model ID (default: Qwen/Qwen3.5-0.8B)"
     echo "  device / --device               Backend device (default: auto)"
-    echo "  dtype / --dtype                 Backend dtype (default: bfloat16)"
-    echo "  attn / --attn-implementation    Attention implementation (default: sdpa)"
+    echo "  --serving-profile              baseline/decode/prefill/memory/balanced (Python default: balanced)"
+    echo "  --dtype / --attn-implementation Optional profile overrides (omitted means inherit)"
     echo "  model_timeout / --model-timeout Backend model timeout seconds (default: 86400)"
-    echo "  quantization / --quantization   Quantization mode for backend (default: none)"
+    echo "  --quantization                 Explicit none/bnb-4bit/bnb-8bit/checkpoint override"
     echo "  trust_remote_code / --trust-remote-code  Whether to trust remote code execution (default: false)"
-    echo "  continuous_batching / --continuous-batching  Whether to enable continuous batching (default: false)"
+    echo "  --continuous-batching / --compile / --use-kernels  inherit/auto/on/off; bare flag means on"
+    echo "  BACKEND_* / FLEXSERV_*          Optional environment overrides; explicit arguments take precedence"
     echo "  login_port / --login-port       Login node port for reverse tunnel (required unless TAP allocates one)"
-    echo "  is_distributed / --is-distributed  Multi-node distributed mode (0/1, default: 0)"
+    echo "  is_distributed / --is-distributed  Keep at 0; distributed mode is currently unsupported (default: 0)"
     echo "  enable_https / --enable-https   Whether to enable HTTPS in gateway mode (default: disabled)"
 }
 
@@ -43,12 +43,22 @@ LOGIN_PORT=""
 IS_DISTRIBUTED=0
 ENABLE_HTTPS=0
 DEVICE="${FLEXSERV_DEVICE:-auto}"
-DTYPE="${FLEXSERV_DTYPE:-bfloat16}"
-ATTN_IMPLEMENTATION="${FLEXSERV_ATTN_IMPL:-sdpa}"
 MODEL_TIMEOUT="${FLEXSERV_MODEL_TIMEOUT:-86400}"
-QUANTIZATION="${FLEXSERV_QUANTIZATION:-none}"
 TRUST_REMOTE_CODE="${FLEXSERV_TRUST_REMOTE_CODE:-false}"
-CONTINUOUS_BATCHING="${FLEXSERV_CONTINUOUS_BATCHING:-false}"
+RUNTIME_FLAGS=()
+RUNTIME_SEEN=()
+add_runtime_arg() {
+    local flag="$1" value="$2" seen
+    for seen in "${RUNTIME_SEEN[@]}"; do
+        if [ "$seen" = "$flag" ]; then
+            echo "ERROR: duplicate runtime override: $flag" >&2
+            exit 1
+        fi
+    done
+    RUNTIME_SEEN+=("$flag")
+    RUNTIME_FLAGS+=("$flag" "$value")
+}
+
 CONTAINER_TRANSFORMERS_BACKEND_SERVER="${FLEXSERV_TRANSFORMERS_BACKEND_SERVER:-/app/flexserv/backend/backend_server.py}"
 
 if [[ "$1" == -* ]]; then
@@ -86,14 +96,6 @@ if [[ "$1" == -* ]]; then
                 DEVICE="$2"
                 shift 2
             ;;
-            --dtype)
-                DTYPE="$2"
-                shift 2
-            ;;
-            --attn-implementation)
-                ATTN_IMPLEMENTATION="$2"
-                shift 2
-            ;;
             --model-timeout)
                 MODEL_TIMEOUT="$2"
                 shift 2
@@ -102,17 +104,33 @@ if [[ "$1" == -* ]]; then
                 ENABLE_HTTPS=1
                 shift
             ;;
-            --quantization)
-                QUANTIZATION="$2"
-                shift 2
-            ;;
             --trust-remote-code)
                 TRUST_REMOTE_CODE="$2"
                 shift 2
             ;;
-            --continuous-batching)
-                CONTINUOUS_BATCHING="$2"
+            --serving-profile|--dtype|--attn-implementation|--quantization|--compile-mode|--cache-implementation|--max-cache-len|--prefill-chunk-size|--bnb-4bit-compute-dtype|--cb-page-size|--cb-block-size|--cb-num-blocks|--cb-max-blocks-per-request|--cb-max-batch-tokens|--cb-max-requests-per-batch|--cb-max-memory-percent|--cb-compile-level|--cb-scheduler|--cb-safety-margin|--cb-cpu-offload-gib|--cb-max-queue-size|--max-outstanding-requests)
+                if [ "$#" -lt 2 ] || [[ "$2" == --* ]]; then
+                    echo "ERROR: $1 requires a value" >&2
+                    exit 1
+                fi
+                flag="$1"
+                [ "$flag" != "--cb-block-size" ] || flag="--cb-page-size"
+                add_runtime_arg "$flag" "$2"
                 shift 2
+            ;;
+            --continuous-batching|--compile|--use-kernels|--compile-dynamic|--compile-fullgraph|--cb-prefix-caching|--cb-use-cuda-graph|--cb-async-batching)
+                flag="$1"
+                value="on"
+                shift
+                if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+                    value="$1"
+                    shift
+                fi
+                add_runtime_arg "$flag" "$value"
+            ;;
+            --no-continuous-batching|--no-compile|--no-use-kernels|--no-compile-dynamic|--no-compile-fullgraph|--no-cb-prefix-caching|--no-cb-use-cuda-graph|--no-cb-async-batching)
+                add_runtime_arg "--${1#--no-}" "off"
+                shift
             ;;
             -h|--help)
                 print_usage
@@ -137,9 +155,9 @@ else
     LOGIN_PORT=${4:-""}
     IS_DISTRIBUTED=${5:-0}
     ENABLE_HTTPS=${6:-0}
-    QUANTIZATION=${7:-${QUANTIZATION}}
+    if [ "$#" -ge 7 ]; then add_runtime_arg "--quantization" "$7"; fi
     TRUST_REMOTE_CODE=${8:-${TRUST_REMOTE_CODE}}
-    CONTINUOUS_BATCHING=${9:-${CONTINUOUS_BATCHING}}
+    if [ "$#" -ge 9 ]; then add_runtime_arg "--continuous-batching" "$9"; fi
 fi
 
 HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-""}
@@ -231,7 +249,7 @@ else
 fi
 
 # Do NOT force IS_DISTRIBUTED=0 here.
-# Multi-node distributed mode remains off by default, but explicit --distributed still works.
+# The unsupported distributed launch path remains off by default.
 
 echo "======================================================================"
 echo "FlexServ on TACC HPC - Apptainer Runtime"
@@ -281,7 +299,7 @@ NODE_HOSTNAME_PREFIX=$(hostname -s)
 export NODE_HOSTNAME_DOMAIN=$(hostname -d)
 echo "TACC: running on node $NODE_HOSTNAME_PREFIX on $NODE_HOSTNAME_DOMAIN"
 
-TAP_FUNCTIONS="/share/doc/slurm/tap_functions"
+TAP_FUNCTIONS="${TAP_FUNCTIONS:-/share/doc/slurm/tap_functions}"
 if [ -f "${TAP_FUNCTIONS}" ]; then
     . "${TAP_FUNCTIONS}"
 else
@@ -289,8 +307,9 @@ else
     exit 1
 fi
 
-mkdir -p "${HOME}/.tap"
-export TAP_CERTFILE="$(cat "${HOME}/.tap/.${SLURM_JOB_ID}")"
+if [ -z "${TAP_CERTFILE:-}" ]; then
+    export TAP_CERTFILE="$(cat "${HOME}/.tap/.${SLURM_JOB_ID}")"
+fi
 if [ ! -f "${TAP_CERTFILE}" ]; then
     echo "TACC: ERROR - could not find TLS cert for secure session"
     exit 1
@@ -386,10 +405,8 @@ echo "Detected architecture: ${RAW_ARCH} (image arch code: ${ARCH_CODE})"
 echo "Apptainer image: ${APPTAINER_IMAGE}"
 echo "Default model name: ${MODEL_NAME}"
 echo "Device: ${DEVICE}"
-echo "DType: ${DTYPE}"
-echo "Attention implementation: ${ATTN_IMPLEMENTATION}"
 echo "Model timeout: ${MODEL_TIMEOUT}"
-echo "Quantization: ${QUANTIZATION}"
+echo "Runtime argv overrides: ${RUNTIME_FLAGS[*]:-(profile defaults)}"
 echo "FlexServ owner: ${FLEXSERV_OWNER}"
 echo "FlexServ token: ${FLEXSERV_SECRET}"
 
@@ -430,8 +447,6 @@ echo "======================================================================"
 echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  FlexServ token: ${FLEXSERV_SECRET}"
 echo "======================================================================"
 echo ""
-
-echo "FlexServ address: ${protocol}://${HPC_HOST}:${LOGIN_PORT}  FlexServ token: ${FLEXSERV_SECRET}" > ${_tapisExecSystemOutputDir}/flexserv_access_info.txt
 
 # 5. Run FlexServ in Apptainer container
 echo "Starting FlexServ in Apptainer container..."
@@ -512,10 +527,11 @@ if [[ "$TRUST_REMOTE_CODE" == "true" ]] || [[ "$TRUST_REMOTE_CODE" == "1" ]]; th
     GATEWAY_BACKEND_FLAGS+=("--backend-trust-remote-code")
 fi
 
-if [[ "$CONTINUOUS_BATCHING" == "true" ]] || [[ "$CONTINUOUS_BATCHING" == "1" ]]; then
-    BACKEND_SERVER_FLAGS+=("--continuous-batching")
-    GATEWAY_BACKEND_FLAGS+=("--backend-continuous-batching")
-fi
+# Keep performance argv separate from environment so Python can report its origin.
+GATEWAY_RUNTIME_ARGS=()
+for ((runtime_index=0; runtime_index<${#RUNTIME_FLAGS[@]}; runtime_index+=2)); do
+    GATEWAY_RUNTIME_ARGS+=("--backend-${RUNTIME_FLAGS[runtime_index]#--}" "${RUNTIME_FLAGS[runtime_index+1]}")
+done
 
 APPTAINER_GATEWAY_TLS_ENVS=()
 if [ "$ENABLE_HTTPS" -ne 0 ]; then
@@ -550,6 +566,30 @@ COMMON_APPTAINER_ARGS=(
     --env "CC=/usr/bin/gcc"
     --env "CXX=/usr/bin/g++"
 )
+
+# These values remain environment inputs; explicit argv wins in the Python resolver.
+for runtime_env in \
+    BACKEND_SERVING_PROFILE FLEXSERV_SERVING_PROFILE BACKEND_DTYPE FLEXSERV_DTYPE \
+    BACKEND_ATTN_IMPLEMENTATION FLEXSERV_ATTN_IMPLEMENTATION BACKEND_QUANTIZATION FLEXSERV_QUANTIZATION \
+    BACKEND_COMPILE_MODE FLEXSERV_COMPILE_MODE BACKEND_CACHE_IMPLEMENTATION FLEXSERV_CACHE_IMPLEMENTATION \
+    BACKEND_MAX_CACHE_LEN FLEXSERV_MAX_CACHE_LEN BACKEND_PREFILL_CHUNK_SIZE FLEXSERV_PREFILL_CHUNK_SIZE \
+    BACKEND_BNB_4BIT_COMPUTE_DTYPE FLEXSERV_BNB_4BIT_COMPUTE_DTYPE BACKEND_CB_PAGE_SIZE FLEXSERV_CB_PAGE_SIZE \
+    BACKEND_CB_NUM_BLOCKS FLEXSERV_CB_NUM_BLOCKS BACKEND_CB_MAX_BLOCKS_PER_REQUEST FLEXSERV_CB_MAX_BLOCKS_PER_REQUEST \
+    BACKEND_CB_MAX_BATCH_TOKENS FLEXSERV_CB_MAX_BATCH_TOKENS BACKEND_CB_MAX_REQUESTS_PER_BATCH FLEXSERV_CB_MAX_REQUESTS_PER_BATCH \
+    BACKEND_CB_MAX_MEMORY_PERCENT FLEXSERV_CB_MAX_MEMORY_PERCENT BACKEND_CB_COMPILE_LEVEL FLEXSERV_CB_COMPILE_LEVEL \
+    BACKEND_CB_SCHEDULER FLEXSERV_CB_SCHEDULER BACKEND_CB_SAFETY_MARGIN FLEXSERV_CB_SAFETY_MARGIN \
+    BACKEND_CB_CPU_OFFLOAD_GIB FLEXSERV_CB_CPU_OFFLOAD_GIB BACKEND_CB_MAX_QUEUE_SIZE FLEXSERV_CB_MAX_QUEUE_SIZE \
+    BACKEND_MAX_OUTSTANDING_REQUESTS FLEXSERV_MAX_OUTSTANDING_REQUESTS BACKEND_CONTINUOUS_BATCHING FLEXSERV_CONTINUOUS_BATCHING \
+    BACKEND_COMPILE FLEXSERV_COMPILE BACKEND_USE_KERNELS FLEXSERV_USE_KERNELS \
+    BACKEND_COMPILE_DYNAMIC FLEXSERV_COMPILE_DYNAMIC BACKEND_COMPILE_FULLGRAPH FLEXSERV_COMPILE_FULLGRAPH \
+    BACKEND_CB_PREFIX_CACHING FLEXSERV_CB_PREFIX_CACHING BACKEND_CB_USE_CUDA_GRAPH FLEXSERV_CB_USE_CUDA_GRAPH \
+    BACKEND_CB_ASYNC_BATCHING FLEXSERV_CB_ASYNC_BATCHING BACKEND_CB_BLOCK_SIZE FLEXSERV_CB_BLOCK_SIZE \
+    BACKEND_ATTN_IMPL FLEXSERV_ATTN_IMPL
+do
+    if declare -p "$runtime_env" >/dev/null 2>&1; then
+        COMMON_APPTAINER_ARGS+=(--env "${runtime_env}=${!runtime_env}")
+    fi
+done
 
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-unset}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
@@ -599,10 +639,8 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
         --port "${FLEXSERV_PORT}" \
         --flexserv-token "${FLEXSERV_SECRET}" \
         --device "${DEVICE}" \
-        --dtype "${DTYPE}" \
-        --attn-implementation "${ATTN_IMPLEMENTATION}" \
         --model-timeout "${MODEL_TIMEOUT}" \
-        --quantization "${QUANTIZATION}" \
+        "${RUNTIME_FLAGS[@]}" \
         "${BACKEND_SERVER_FLAGS[@]}"
 else
     echo "Launching FlexServ container in SINGLE-NODE NORMAL mode..."
@@ -621,10 +659,8 @@ else
         --backend-server "${CONTAINER_TRANSFORMERS_BACKEND_SERVER}" \
         --flexserv-token "${FLEXSERV_SECRET}" \
         --backend-device "${DEVICE}" \
-        --backend-dtype "${DTYPE}" \
         --backend-model-timeout "${MODEL_TIMEOUT}" \
-        --backend-quantization "${QUANTIZATION}" \
-        --backend-attn-implementation "${ATTN_IMPLEMENTATION}" \
+        "${GATEWAY_RUNTIME_ARGS[@]}" \
         "${GATEWAY_BACKEND_FLAGS[@]}"
 fi
 
