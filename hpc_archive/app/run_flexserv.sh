@@ -24,7 +24,7 @@ print_usage() {
     echo "  model_timeout / --model-timeout Backend model timeout seconds (default: 86400)"
     echo "  --quantization                 Explicit none/bnb-4bit/bnb-8bit/checkpoint override"
     echo "  trust_remote_code / --trust-remote-code  Whether to trust remote code execution (default: false)"
-    echo "  --continuous-batching / --compile / --use-kernels  inherit/auto/on/off; bare flag means on"
+    echo "  --continuous-batching / --compile / --use-kernels  true/false/auto/inherit; bare flag means true"
     echo "  BACKEND_* / FLEXSERV_*          Optional environment overrides; explicit arguments take precedence"
     echo "  login_port / --login-port       Login node port for reverse tunnel (required unless TAP allocates one)"
     echo "  is_distributed / --is-distributed  Keep at 0; distributed mode is currently unsupported (default: 0)"
@@ -47,8 +47,25 @@ MODEL_TIMEOUT="${FLEXSERV_MODEL_TIMEOUT:-86400}"
 TRUST_REMOTE_CODE="${FLEXSERV_TRUST_REMOTE_CODE:-false}"
 RUNTIME_FLAGS=()
 RUNTIME_SEEN=()
+normalize_runtime_policy() {
+    case "$1" in
+        true|on|1|yes) echo true ;;
+        false|off|0|no) echo false ;;
+        auto|inherit) echo "$1" ;;
+        *) echo "ERROR: $2 must be true, false, auto or inherit" >&2; return 1 ;;
+    esac
+}
+
 add_runtime_arg() {
     local flag="$1" value="$2" seen
+    case "$flag" in
+        --continuous-batching|--compile|--use-kernels|--compile-dynamic|--compile-fullgraph|--cb-prefix-caching|--cb-use-cuda-graph|--cb-async-batching)
+            value=$(normalize_runtime_policy "$value" "$flag") || exit 1
+        ;;
+        --prefill-chunk-size)
+            if [ "$value" = off ]; then value=false; fi
+        ;;
+    esac
     for seen in "${RUNTIME_SEEN[@]}"; do
         if [ "$seen" = "$flag" ]; then
             echo "ERROR: duplicate runtime override: $flag" >&2
@@ -120,7 +137,7 @@ if [[ "$1" == -* ]]; then
             ;;
             --continuous-batching|--compile|--use-kernels|--compile-dynamic|--compile-fullgraph|--cb-prefix-caching|--cb-use-cuda-graph|--cb-async-batching)
                 flag="$1"
-                value="on"
+                value="true"
                 shift
                 if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
                     value="$1"
@@ -129,7 +146,7 @@ if [[ "$1" == -* ]]; then
                 add_runtime_arg "$flag" "$value"
             ;;
             --no-continuous-batching|--no-compile|--no-use-kernels|--no-compile-dynamic|--no-compile-fullgraph|--no-cb-prefix-caching|--no-cb-use-cuda-graph|--no-cb-async-batching)
-                add_runtime_arg "--${1#--no-}" "off"
+                add_runtime_arg "--${1#--no-}" "false"
                 shift
             ;;
             -h|--help)
@@ -589,7 +606,16 @@ for runtime_env in \
     BACKEND_ATTN_IMPL FLEXSERV_ATTN_IMPL
 do
     if declare -p "$runtime_env" >/dev/null 2>&1; then
-        COMMON_APPTAINER_ARGS+=(--env "${runtime_env}=${!runtime_env}")
+        runtime_value="${!runtime_env}"
+        case "$runtime_env" in
+            *_CONTINUOUS_BATCHING|*_COMPILE|*_USE_KERNELS|*_COMPILE_DYNAMIC|*_COMPILE_FULLGRAPH|*_CB_PREFIX_CACHING|*_CB_USE_CUDA_GRAPH|*_CB_ASYNC_BATCHING)
+                runtime_value=$(normalize_runtime_policy "$runtime_value" "$runtime_env") || exit 1
+            ;;
+            *_PREFILL_CHUNK_SIZE)
+                if [ "$runtime_value" = off ]; then runtime_value=false; fi
+            ;;
+        esac
+        COMMON_APPTAINER_ARGS+=(--env "${runtime_env}=${runtime_value}")
     fi
 done
 
