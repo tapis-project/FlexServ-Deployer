@@ -92,13 +92,13 @@
                 {
                     "name": "attnImplementation",
                     "description": "Optional qualified attention override: inherit, auto, eager, sdpa, flash_attention_2, flash_attention_3 or flash_attention_4. Auto uses SM-aware FA2/FA3 preferences and kernel probes. FA4 is explicit and has no Transformers paged-KV fast decode; Qwen3.5 hybrid batching requires SDPA.",
-                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
                     "arg": "--attn-implementation auto"
                 },
                 {
                     "name": "useKernels",
                     "description": "Optional model/hardware kernel policy: auto, true, false or inherit. Auto probes compatible dense Qwen3.5/3.6/3.8 recurrent and convolution kernels while retaining concurrent hybrid paging. True requires successful Qwen kernel qualification; false disables optional replacements. Other models retain native execution in auto mode.",
-                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
                     "arg": "--use-kernels auto"
                 },
                 {
@@ -116,7 +116,7 @@
                 {
                     "name": "cbHybridCache",
                     "description": "Hybrid paged cache policy: auto (default), off or qwen3.5. Auto detects supported unquantized dense Qwen3.5 with CB enabled on a single CUDA target. The text-only adapter requires SDPA; compile=true attempts tensor-region compilation, auto permits eager CB fallback. Graphs, prefix sharing, CPU offload and async batching remain disabled. GPU qualification pending.",
-                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
                     "arg": "--cb-hybrid-cache auto"
                 },
                 {
