@@ -125,7 +125,7 @@ if [[ "$1" == -* ]]; then
                 TRUST_REMOTE_CODE="$2"
                 shift 2
             ;;
-            --serving-profile|--dtype|--attn-implementation|--quantization|--compile-mode|--cache-implementation|--max-cache-len|--prefill-chunk-size|--bnb-4bit-compute-dtype|--cb-page-size|--cb-block-size|--cb-num-blocks|--cb-max-blocks-per-request|--cb-max-batch-tokens|--cb-max-requests-per-batch|--cb-max-memory-percent|--cb-compile-level|--cb-scheduler|--cb-safety-margin|--cb-cpu-offload-gib|--cb-max-queue-size|--max-outstanding-requests)
+            --serving-profile|--dtype|--attn-implementation|--quantization|--compile-mode|--cache-implementation|--max-cache-len|--prefill-chunk-size|--bnb-4bit-compute-dtype|--cb-page-size|--cb-block-size|--cb-num-blocks|--cb-max-blocks-per-request|--cb-max-batch-tokens|--cb-max-requests-per-batch|--cb-max-memory-percent|--cb-compile-level|--cb-hybrid-cache|--cb-scheduler|--cb-safety-margin|--cb-cpu-offload-gib|--cb-max-queue-size|--max-outstanding-requests)
                 if [ "$#" -lt 2 ] || [[ "$2" == --* ]]; then
                     echo "ERROR: $1 requires a value" >&2
                     exit 1
@@ -488,7 +488,9 @@ trap cleanup EXIT INT TERM
 SLURM_NNODES_EFFECTIVE=${SLURM_NNODES:-1}
 SLURM_NODEID_EFFECTIVE=${SLURM_NODEID:-0}
 export GPUS_PER_NODE=$GPU_COUNT
-export WORLD_SIZE=$((SLURM_NNODES_EFFECTIVE * GPUS_PER_NODE))
+# Allocation size is not a torch.distributed process group. Only the launcher
+# below should create WORLD_SIZE/RANK/LOCAL_RANK in actual worker processes.
+DISTRIBUTED_WORLD_SIZE=$((SLURM_NNODES_EFFECTIVE * GPUS_PER_NODE))
 
 # ======================= Distributed setup (if enabled) =======================
 if [ "$IS_DISTRIBUTED" -ne 0 ]; then
@@ -596,7 +598,7 @@ for runtime_env in \
     BACKEND_CB_NUM_BLOCKS FLEXSERV_CB_NUM_BLOCKS BACKEND_CB_MAX_BLOCKS_PER_REQUEST FLEXSERV_CB_MAX_BLOCKS_PER_REQUEST \
     BACKEND_CB_MAX_BATCH_TOKENS FLEXSERV_CB_MAX_BATCH_TOKENS BACKEND_CB_MAX_REQUESTS_PER_BATCH FLEXSERV_CB_MAX_REQUESTS_PER_BATCH \
     BACKEND_CB_MAX_MEMORY_PERCENT FLEXSERV_CB_MAX_MEMORY_PERCENT BACKEND_CB_COMPILE_LEVEL FLEXSERV_CB_COMPILE_LEVEL \
-    BACKEND_CB_SCHEDULER FLEXSERV_CB_SCHEDULER BACKEND_CB_SAFETY_MARGIN FLEXSERV_CB_SAFETY_MARGIN \
+    BACKEND_CB_HYBRID_CACHE FLEXSERV_CB_HYBRID_CACHE BACKEND_CB_SCHEDULER FLEXSERV_CB_SCHEDULER BACKEND_CB_SAFETY_MARGIN FLEXSERV_CB_SAFETY_MARGIN \
     BACKEND_CB_CPU_OFFLOAD_GIB FLEXSERV_CB_CPU_OFFLOAD_GIB BACKEND_CB_MAX_QUEUE_SIZE FLEXSERV_CB_MAX_QUEUE_SIZE \
     BACKEND_MAX_OUTSTANDING_REQUESTS FLEXSERV_MAX_OUTSTANDING_REQUESTS BACKEND_CONTINUOUS_BATCHING FLEXSERV_CONTINUOUS_BATCHING \
     BACKEND_COMPILE FLEXSERV_COMPILE BACKEND_USE_KERNELS FLEXSERV_USE_KERNELS \
@@ -655,7 +657,7 @@ if [ "$IS_DISTRIBUTED" -ne 0 ]; then
         /app/venvs/flexserv/bin/accelerate launch \
         --multi_gpu \
         --num_machines=${SLURM_NNODES_EFFECTIVE} \
-        --num_processes=${WORLD_SIZE} \
+        --num_processes=${DISTRIBUTED_WORLD_SIZE} \
         --machine_rank=${SLURM_NODEID_EFFECTIVE} \
         --main_process_ip=${MASTER_ADDR} \
         --main_process_port=${MASTER_PORT} \
