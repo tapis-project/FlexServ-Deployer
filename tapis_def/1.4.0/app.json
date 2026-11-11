@@ -66,46 +66,58 @@
                     "arg": "--device auto"
                 },
                 {
-                    "name": "dtype",
-                    "description": "Model dtype passed to backend (default: bfloat16).",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--dtype bfloat16"
-                },
-                {
-                    "name": "attnImplementation",
-                    "description": "Attention implementation passed to backend (default: sdpa).",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--attn-implementation sdpa"
-                },
-                {
                     "name": "modelTimeout",
                     "description": "Model timeout seconds passed to backend (default: 86400).",
                     "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--model-timeout 186400"
-                },
-                {
-                    "name": "quantization",
-                    "description": "Quantization mode passed to backend (default: none).",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--quantization none"
-                },
-                {
-                    "name": "trustRemoteCode",
-                    "description": "Whether to trust remote code execution (default: false).",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--trust-remote-code false"
-                },
-                {
-                    "name": "continuousBatching",
-                    "description": "Whether to enable continuous batching (default: false).",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "--continuous-batching false"
+                    "arg": "--model-timeout 86400"
                 },
                 {
                     "name": "isDistributed",
-                    "description": "Indicates whether the FlexServ server should run in distributed mode. 0 is on single node, 1 is on multiple nodes. If not specified, it will default to 0 (single node).",
+                    "description": "Keep at 0 for single-node mode (default). Distributed mode is currently unsupported.",
                     "inputMode": "INCLUDE_BY_DEFAULT",
                     "arg": "--is-distributed 0"
+                },
+                {
+                    "name": "servingProfile",
+                    "description": "Optional serving profile: baseline, decode, prefill, memory or balanced. Python defaults to balanced when no argument or environment selection is supplied.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--serving-profile balanced"
+                },
+                {
+                    "name": "dtype",
+                    "description": "Optional profile override: inherit, auto, float16, bfloat16 or float32.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--dtype auto"
+                },
+                {
+                    "name": "attnImplementation",
+                    "description": "Optional qualified attention override: inherit, auto, eager, sdpa, flash_attention_2, flash_attention_3 or flash_attention_4. Auto uses SM-aware FA2/FA3 preferences and kernel probes. FA4 is explicit and has no Transformers paged-KV fast decode; Qwen3.5 hybrid batching requires SDPA.",
+                    "inputMode": "INCLUDE_BY_DEFAULT",
+                    "arg": "--attn-implementation auto"
+                },
+                {
+                    "name": "quantization",
+                    "description": "Explicit weight quantization selection: none, bnb-4bit, bnb-8bit or checkpoint. No profile implicitly enables quantization.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--quantization none"
+                },
+                {
+                    "name": "continuousBatching",
+                    "description": "Continuous batching policy: auto allows ordinary sequential fallback for unsupported models; true requires model support and fails otherwise. Unquantized dense Qwen3.5 is detected automatically for experimental text-only hybrid paging on a single CUDA target; cbHybridCache=off disables this adapter.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--continuous-batching auto"
+                },
+                {
+                    "name": "cbHybridCache",
+                    "description": "Hybrid paged cache policy: auto (default), off or qwen3.5. Auto detects supported unquantized dense Qwen3.5 with CB enabled on a single CUDA target. The experimental text-only adapter requires SDPA and disables compile, graphs, prefix sharing, CPU offload and async batching. GPU qualification pending.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--cb-hybrid-cache auto"
+                },
+                {
+                    "name": "compile",
+                    "description": "Ordinary generation compilation override: true, false, auto or inherit (default profile: false). Continuous batching compilation is configured separately.",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": "--compile false"
                 }
             ],
             "schedulerOptions": [
@@ -124,14 +136,14 @@
                 {
                     "name": "TACC Resource Allocation",
                     "description": "Set the TACC resource allocation for the job.",
-                    "inputMode": "INCLUDE_BY_DEFAULT",
-                    "arg": "-A << allocation >>"
+                    "inputMode": "REQUIRED",
+                    "arg": ""
                 },
                 {
                     "name": "Reservation Name",
                     "description": "Set the reservation name for the job.",
                     "inputMode": "INCLUDE_ON_DEMAND",
-                    "arg": "--reservation << reservation >>"
+                    "arg": ""
                 }
             ],
             "envVariables": [
