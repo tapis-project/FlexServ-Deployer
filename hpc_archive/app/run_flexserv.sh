@@ -19,7 +19,7 @@ print_usage() {
     echo "  secret / --secret               FlexServ auth secret (default: TAP token / flexserv)"
     echo "  model_name / --model-name       Default FlexServ private model ID (default: Qwen/Qwen3.5-0.8B)"
     echo "  device / --device               Backend device (default: auto)"
-    echo "  --serving-profile              auto/baseline/decode/prefill/memory/balanced (Python default: balanced)"
+    echo "  --serving-profile              auto/baseline/decode/latency/extreme/prefill/memory/balanced (extreme=latency; Python default: balanced)"
     echo "  --dtype / --attn-implementation Optional profile overrides (omitted means inherit)"
     echo "  model_timeout / --model-timeout Backend model timeout seconds (default: 86400)"
     echo "  --quantization                 Explicit none/bnb-4bit/bnb-8bit/checkpoint override"
